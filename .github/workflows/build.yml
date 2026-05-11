@@ -62,6 +62,26 @@ jobs:
       - name: Install npm dependencies
         run: npm install
 
+      # Cache the embedded Python runtime per-OS+arch. The setup scripts are
+      # the SSOT for pinned versions — hashing them invalidates the cache when
+      # we bump.
+      - name: Cache embedded Python runtime
+        id: cache-pyrt
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/resources/python-runtime
+          key: pyrt-${{ runner.os }}-${{ matrix.args }}-${{ hashFiles('scripts/setup-python-runtime.sh', 'scripts/setup-python-runtime.ps1') }}
+
+      # tauri-action invokes `tauri build` directly — it does NOT chain through
+      # the package.json `build` script, so the setup never runs in CI even
+      # though it does locally. We invoke it explicitly so the bundle.resources
+      # glob is populated before tauri-action starts. The Node wrapper at
+      # scripts/setup-python.js dispatches to the .sh or .ps1 sibling based on
+      # process.platform — one workflow step, three OSes.
+      - name: Set up Python runtime
+        if: steps.cache-pyrt.outputs.cache-hit != 'true'
+        run: npm run setup:python
+
       - name: Build and publish Tauri app
         uses: tauri-apps/tauri-action@v0
         env:

@@ -13,7 +13,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "bash tests/integration_run_pywr.sh",
-    "setup:python": "bash scripts/setup-python-runtime.sh"
+    "setup:python": "node scripts/setup-python.js"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",

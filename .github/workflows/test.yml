@@ -59,6 +59,25 @@ jobs:
       - name: Install npm dependencies
         run: npm install
 
+      # Cache the embedded Python runtime so we don't redownload + reinstall
+      # pywr on every test run. Key is keyed off the setup script — bumping the
+      # pinned versions in the script invalidates the cache automatically.
+      - name: Cache embedded Python runtime
+        id: cache-pyrt
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/resources/python-runtime
+          key: pyrt-${{ runner.os }}-${{ hashFiles('scripts/setup-python-runtime.sh') }}
+
+      # Tauri's build script validates `bundle.resources` globs at compile time
+      # — without the runtime staged, even `cargo test` fails with "glob pattern
+      # resources/python-runtime/**/* path not found". We run the full setup
+      # rather than a stub so the test suite exercises the same Python tree the
+      # release build will ship.
+      - name: Set up Python runtime
+        if: steps.cache-pyrt.outputs.cache-hit != 'true'
+        run: npm run setup:python
+
       - name: TypeScript typecheck
         run: npm run typecheck
 
