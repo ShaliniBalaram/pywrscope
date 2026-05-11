@@ -35,11 +35,25 @@ MARKER="${DEST_DIR}/.runtime-version"
 MARKER_VALUE="pbs=${PBS_RELEASE} python=${PYTHON_VERSION} pywr=${PYWR_VERSION}"
 
 # ---------------------------------------------------------------------------
-# Detect host platform → python-build-standalone asset triple.
-# Windows is intentionally not handled here; a sibling .ps1 script is the right
-# home for that since bash on Windows + tar + signing all behave differently.
+# Detect platform → python-build-standalone asset triple.
+#
+# PBS_TARGET_TRIPLE overrides host detection. This is the cross-build escape
+# hatch: GitHub's `macos-latest` runner is now Apple Silicon (arm64), but our
+# Intel-targeted .dmg job still runs on it via `cargo --target x86_64-apple-
+# darwin`. Without an override, host detection would embed an arm64 Python
+# runtime in the Intel-targeted bundle — broken at runtime on Intel Macs.
+# The build workflow passes the target via this env var; local builds get
+# host detection automatically.
+#
+# Windows is intentionally not handled here; the sibling .ps1 script is the
+# right home for that since bash on Windows + tar + signing all behave
+# differently.
 # ---------------------------------------------------------------------------
 detect_triple() {
+  if [[ -n "${PBS_TARGET_TRIPLE:-}" ]]; then
+    echo "${PBS_TARGET_TRIPLE}"
+    return
+  fi
   local kernel
   local arch
   kernel="$(uname -s)"
@@ -52,6 +66,7 @@ detect_triple() {
     *)
       echo "ERROR: unsupported platform: ${kernel}-${arch}" >&2
       echo "Supported: macOS arm64/x86_64, Linux x86_64/aarch64" >&2
+      echo "Set PBS_TARGET_TRIPLE to override for cross-build." >&2
       exit 1
       ;;
   esac

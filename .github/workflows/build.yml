@@ -15,22 +15,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS — Apple Silicon (.dmg)
+          # macOS — Apple Silicon (.dmg). Native on macos-latest (arm64).
           - platform: macos-latest
-            args: "--target aarch64-apple-darwin"
+            args: ""
             label: macOS Apple Silicon
-          # macOS — Intel (.dmg)
-          - platform: macos-latest
-            args: "--target x86_64-apple-darwin"
+            target_triple: ""
+          # macOS — Intel (.dmg). Native build on macos-13 (the last GitHub-
+          # provided Intel runner). Cross-building from arm64 needs an Intel
+          # GLPK to link Pywr's Cython solver — easier to just run on Intel.
+          - platform: macos-13
+            args: ""
             label: macOS Intel
+            target_triple: ""
           # Windows (.exe installer)
           - platform: windows-latest
             args: ""
             label: Windows
+            target_triple: ""
           # Linux — Debian/Ubuntu (.deb + .AppImage)
           - platform: ubuntu-22.04
             args: ""
             label: Linux
+            target_triple: ""
 
     runs-on: ${{ matrix.platform }}
 
@@ -45,10 +51,12 @@ jobs:
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      # Tauri v2 on Ubuntu 22.04 requires these system libraries
+      # Tauri v2 on Ubuntu 22.04 requires these system libraries.
+      # libfuse2 is for AppImage tooling — linuxdeploy is itself an AppImage
+      # and silently fails to execute on 22.04+ without fuse2 (22.04 ships
+      # fuse3 by default). Without it, .AppImage bundling errors with
+      # "failed to run linuxdeploy".
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -57,7 +65,16 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            libfuse2
+
+      # Pywr's Cython solver links against GLPK at compile time. pywr ships
+      # manylinux + Windows wheels but no macOS wheels (as of 1.30.0), so pip
+      # falls back to a from-source build on Mac and needs glpk.h on the
+      # include path. brew installs both the headers and the library.
+      - name: Install macOS system dependencies (GLPK for pywr)
+        if: startsWith(matrix.platform, 'macos')
+        run: brew install glpk
 
       - name: Install npm dependencies
         run: npm install
@@ -80,6 +97,11 @@ jobs:
       # process.platform — one workflow step, three OSes.
       - name: Set up Python runtime
         if: steps.cache-pyrt.outputs.cache-hit != 'true'
+        env:
+          # Override host detection for cross-builds — the Intel-targeted Mac
+          # job runs on an arm64 runner, so without this it would embed the
+          # wrong-arch Python. Empty string falls back to host detection.
+          PBS_TARGET_TRIPLE: ${{ matrix.target_triple }}
         run: npm run setup:python
 
       - name: Build and publish Tauri app
