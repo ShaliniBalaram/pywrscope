@@ -1,0 +1,47 @@
+/* Hide connection handles by default — show on node hover only */
+.react-flow__handle {
+  opacity: 0;
+  transition: opacity 0.15s;
+  width: 7px !important;
+  height: 7px !important;
+  background: #fff !important;
+  border: 1.5px solid #64748b !important;
+  border-radius: 50% !important;
+}
+
+.react-flow__node:hover .react-flow__handle {
+  opacity: 1;
+}
+
+/* Keep handles visible when a connection is being dragged */
+.react-flow__node.connecting .react-flow__handle,
+.react-flow__handle.connectingfrom,
+.react-flow__handle.connectingto {
+  opacity: 1 !important;
+}
+
+/* Remove ReactFlow's default node box-shadow/border so our own styling shows cleanly */
+.react-flow__node {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Clean up the controls panel */
+.react-flow__controls {
+  box-shadow: 0 1px 6px rgba(0,0,0,0.15);
+  border-radius: 6px;
+}
+
+.react-flow__controls-button {
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+/* Crosshair (+) cursor in placement and edge-drawing mode.
+   Needs !important to override ReactFlow's own cursor rules on the pane and nodes. */
+.pywr-mode-active,
+.pywr-mode-active .react-flow__pane,
+.pywr-mode-active .react-flow__node,
+.pywr-mode-active .react-flow__edge {
+  cursor: crosshair !important;
+}

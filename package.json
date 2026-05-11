@@ -1,0 +1,42 @@
+{
+  "name": "pywrscope",
+  "version": "1.0.0",
+  "description": "Pywrscope — open-source visual diagnostic platform for Pywr water-resources network models",
+  "scripts": {
+    "dev": "npm run setup:python && tauri dev",
+    "dev:vite": "vite --port 3000",
+    "build": "npm run setup:python && tauri build",
+    "build:vite": "vite build",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "bash tests/integration_run_pywr.sh",
+    "setup:python": "bash scripts/setup-python-runtime.sh"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
+    "@tauri-apps/api": "^2",
+    "html-to-image": "^1.11.13",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "reactflow": "^11.10.4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/dagre": "^0.7.54",
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "@vitest/coverage-v8": "^4.1.4",
+    "jsdom": "^29.0.2",
+    "typescript": "^5.3.3",
+    "vite": "^5.4.0",
+    "vitest": "^4.1.4"
+  }
+}

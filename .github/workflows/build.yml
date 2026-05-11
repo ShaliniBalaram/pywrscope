@@ -1,0 +1,97 @@
+name: Build Pywrscope
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS — Apple Silicon (.dmg)
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+            label: macOS Apple Silicon
+          # macOS — Intel (.dmg)
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+            label: macOS Intel
+          # Windows (.exe installer)
+          - platform: windows-latest
+            args: ""
+            label: Windows
+          # Linux — Debian/Ubuntu (.deb + .AppImage)
+          - platform: ubuntu-22.04
+            args: ""
+            label: Linux
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      # Tauri v2 on Ubuntu 22.04 requires these system libraries
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Build and publish Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Pywrscope ${{ github.ref_name }}"
+          releaseBody: |
+            ## Installation
+
+            Download the file for your platform below:
+
+            | Platform | File |
+            |----------|------|
+            | **Mac — Apple Silicon (M1/M2/M3)** | `Pywrscope_*_aarch64.dmg` |
+            | **Mac — Intel** | `Pywrscope_*_x64.dmg` |
+            | **Windows** | `Pywrscope_*_x64-setup.exe` |
+            | **Linux (Ubuntu/Debian)** | `pywrscope_*_amd64.deb` |
+            | **Linux (other)** | `pywrscope_*_amd64.AppImage` |
+
+            No Python, Node.js or any other runtime required — fully standalone.
+
+            ### Mac first-time setup
+            macOS blocks unsigned apps on first launch. Run once in Terminal:
+            ```
+            xattr -cr /Applications/Pywrscope.app
+            ```
+
+            ### Windows first-time setup
+            Click **More info** → **Run anyway** if Windows SmartScreen appears.
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

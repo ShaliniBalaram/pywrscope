@@ -1,0 +1,205 @@
+{
+  "metadata": {
+    "title": "Thames Valley Water Supply",
+    "description": "A small but complete water supply model: river catchment feeds a reservoir and a groundwater source, both supplying a treatment works that serves two demand centres. Includes monthly demand variation, an annual abstraction licence, environmental flow requirement, and recorders on every node.",
+    "minimum_version": "1.0"
+  },
+  "timestepper": {
+    "start": "2024-01-01",
+    "end": "2024-12-31",
+    "timestep": 1
+  },
+  "nodes": [
+    {
+      "name": "Thames_Catchment",
+      "type": "Catchment",
+      "flow": "thames_inflow",
+      "comment": "Natural river inflow \u2014 driven by monthly rainfall pattern"
+    },
+    {
+      "name": "Thames_Gauge",
+      "type": "RiverGauge",
+      "mrf": 2.0,
+      "mrf_cost": 50000,
+      "comment": "Environmental flow requirement \u2014 minimum residual flow of 2 Ml/d"
+    },
+    {
+      "name": "Farmoor_Reservoir",
+      "type": "Storage",
+      "max_volume": 150.0,
+      "initial_volume_pc": 0.85,
+      "min_volume": 10.0,
+      "cost": -200,
+      "comment": "Main service reservoir \u2014 150 Ml capacity"
+    },
+    {
+      "name": "Chalk_Borehole",
+      "type": "Input",
+      "max_flow": 8.0,
+      "cost": -5,
+      "comment": "Chalk aquifer abstraction \u2014 up to 8 Ml/d"
+    },
+    {
+      "name": "GW_Licence",
+      "type": "AnnualVirtualStorage",
+      "nodes": [
+        "Chalk_Borehole"
+      ],
+      "max_volume": 2000,
+      "initial_volume": 2000,
+      "comment": "Annual abstraction licence \u2014 2000 Ml/year from the borehole"
+    },
+    {
+      "name": "Swinford_WTW",
+      "type": "Link",
+      "max_flow": 20.0,
+      "cost": 1.0,
+      "comment": "Water treatment works \u2014 blends reservoir and borehole sources"
+    },
+    {
+      "name": "Oxford_DC",
+      "type": "Output",
+      "max_flow": "oxford_demand",
+      "cost": -500,
+      "comment": "Oxford demand centre \u2014 seasonal demand profile"
+    },
+    {
+      "name": "Abingdon_DC",
+      "type": "Output",
+      "max_flow": "abingdon_demand",
+      "cost": -500,
+      "comment": "Abingdon demand centre \u2014 seasonal demand profile"
+    },
+    {
+      "name": "River_Downstream",
+      "type": "Output",
+      "max_flow": 9999,
+      "cost": 0,
+      "comment": "Downstream river \u2014 absorbs any flow not abstracted"
+    }
+  ],
+  "edges": [
+    [
+      "Thames_Catchment",
+      "Thames_Gauge"
+    ],
+    [
+      "Thames_Gauge",
+      "Farmoor_Reservoir"
+    ],
+    [
+      "Thames_Gauge",
+      "River_Downstream"
+    ],
+    [
+      "Farmoor_Reservoir",
+      "Swinford_WTW"
+    ],
+    [
+      "Chalk_Borehole",
+      "Swinford_WTW"
+    ],
+    [
+      "Swinford_WTW",
+      "Oxford_DC"
+    ],
+    [
+      "Swinford_WTW",
+      "Abingdon_DC"
+    ]
+  ],
+  "parameters": {
+    "thames_inflow": {
+      "type": "MonthlyProfileParameter",
+      "values": [
+        18.0,
+        20.0,
+        16.0,
+        12.0,
+        9.0,
+        7.0,
+        5.5,
+        5.0,
+        6.0,
+        10.0,
+        14.0,
+        17.0
+      ],
+      "comment": "Monthly river inflow in Ml/d \u2014 peaks in winter, drops in summer"
+    },
+    "oxford_demand": {
+      "type": "MonthlyProfileParameter",
+      "values": [
+        8.0,
+        7.5,
+        8.0,
+        8.5,
+        9.5,
+        11.0,
+        12.0,
+        11.5,
+        10.0,
+        8.5,
+        8.0,
+        8.0
+      ],
+      "comment": "Oxford demand in Ml/d \u2014 rises in summer due to garden watering"
+    },
+    "abingdon_demand": {
+      "type": "MonthlyProfileParameter",
+      "values": [
+        4.0,
+        3.8,
+        4.0,
+        4.2,
+        4.8,
+        5.5,
+        6.0,
+        5.8,
+        5.0,
+        4.2,
+        4.0,
+        4.0
+      ],
+      "comment": "Abingdon demand in Ml/d \u2014 smaller centre, same seasonal pattern"
+    }
+  },
+  "recorders": {
+    "Thames_Catchment_recorder": {
+      "type": "NumpyArrayNodeRecorder",
+      "node": "Thames_Catchment"
+    },
+    "Thames_Gauge_recorder": {
+      "type": "NumpyArrayNodeRecorder",
+      "node": "Thames_Gauge"
+    },
+    "Farmoor_Reservoir_recorder": {
+      "type": "NumpyArrayStorageRecorder",
+      "node": "Farmoor_Reservoir"
+    },
+    "Chalk_Borehole_recorder": {
+      "type": "NumpyArrayNodeRecorder",
+      "node": "Chalk_Borehole"
+    },
+    "Swinford_WTW_recorder": {
+      "type": "NumpyArrayNodeRecorder",
+      "node": "Swinford_WTW"
+    },
+    "Oxford_DC_recorder": {
+      "type": "NumpyArrayNodeRecorder",
+      "node": "Oxford_DC"
+    },
+    "Oxford_DC_deficit_recorder": {
+      "type": "NumpyArrayNodeDeficitRecorder",
+      "node": "Oxford_DC"
+    },
+    "Abingdon_DC_recorder": {
+      "type": "NumpyArrayNodeRecorder",
+      "node": "Abingdon_DC"
+    },
+    "Abingdon_DC_deficit_recorder": {
+      "type": "NumpyArrayNodeDeficitRecorder",
+      "node": "Abingdon_DC"
+    }
+  }
+}
