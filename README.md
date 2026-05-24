@@ -2,6 +2,13 @@
 
 A desktop tool for water engineers to open, edit and validate Pywr water resource model files on an interactive map canvas.
 
+## Skills Demonstrated
+
+- TypeScript/React desktop UI for water-resources model editing
+- Pywr JSON parsing, validation, and network visualization
+- Tauri packaging with a bundled Python runtime path
+- Tested frontend state management, model editing, and export workflows
+
 ---
 
 ## Installation
