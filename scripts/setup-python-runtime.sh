@@ -107,6 +107,16 @@ fi
 
 echo "[setup-python-runtime] $("${PY}" --version)"
 
+if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+  GLPK_PREFIX="$(brew --prefix glpk 2>/dev/null || true)"
+  if [[ -n "${GLPK_PREFIX}" ]]; then
+    export CFLAGS="${CFLAGS:-} -I${GLPK_PREFIX}/include"
+    export LDFLAGS="${LDFLAGS:-} -L${GLPK_PREFIX}/lib"
+    export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-}:${GLPK_PREFIX}/lib/pkgconfig"
+    echo "[setup-python-runtime] using GLPK from ${GLPK_PREFIX}"
+  fi
+fi
+
 echo "[setup-python-runtime] installing pywr==${PYWR_VERSION} and h5py==${H5PY_VERSION}..."
 "${PY}" -m pip install --quiet --upgrade pip
 "${PY}" -m pip install --quiet "pywr==${PYWR_VERSION}" "h5py==${H5PY_VERSION}"

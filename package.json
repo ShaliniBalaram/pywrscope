@@ -1,6 +1,6 @@
 {
   "name": "pywrscope",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "Desktop application for opening, drawing, editing and validating Pywr water resource model JSON files",
   "scripts": {
     "dev": "npm run setup:python && tauri dev",

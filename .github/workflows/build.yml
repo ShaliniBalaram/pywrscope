@@ -16,11 +16,11 @@ jobs:
       matrix:
         include:
           # macOS — Apple Silicon (.dmg)
-          - platform: macos-latest
+          - platform: macos-15
             args: "--target aarch64-apple-darwin"
             label: macOS Apple Silicon
           # macOS — Intel (.dmg)
-          - platform: macos-latest
+          - platform: macos-15-intel
             args: "--target x86_64-apple-darwin"
             label: macOS Intel
           # Windows (.exe installer)
@@ -46,7 +46,7 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       # Tauri v2 on Ubuntu 22.04 requires these system libraries
       - name: Install Linux system dependencies
@@ -58,6 +58,10 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf
+
+      - name: Install macOS system dependencies
+        if: startsWith(matrix.platform, 'macos')
+        run: brew install glpk
 
       - name: Install npm dependencies
         run: npm install
