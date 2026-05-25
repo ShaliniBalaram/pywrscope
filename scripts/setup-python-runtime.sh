@@ -129,6 +129,15 @@ if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
       if [[ -d "${PREFIX}/lib/pkgconfig" ]]; then
         append_unique_path PKG_CONFIG_PATH "${PREFIX}/lib/pkgconfig"
       fi
+      if [[ "${formula}" == "lp_solve" && ! -f "${PREFIX}/include/lpsolve/lp_lib.h" && -f "${PREFIX}/include/lp_lib.h" ]]; then
+        LPSOLVE_SHIM="${TMP_DIR}/lp_solve-include"
+        mkdir -p "${LPSOLVE_SHIM}/lpsolve"
+        find "${PREFIX}/include" -maxdepth 1 -type f -name '*.h' \
+          -exec ln -sf {} "${LPSOLVE_SHIM}/lpsolve/" \;
+        export CFLAGS="${CFLAGS:-} -I${LPSOLVE_SHIM}"
+        append_unique_path C_INCLUDE_PATH "${LPSOLVE_SHIM}"
+        echo "[setup-python-runtime] added lpsolve include shim at ${LPSOLVE_SHIM}"
+      fi
       echo "[setup-python-runtime] using ${formula} from ${PREFIX}"
     fi
   done
