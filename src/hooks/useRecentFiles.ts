@@ -3,7 +3,7 @@
 
 import { useState, useCallback } from "react";
 
-const KEY = "pywr-canvas-recent-files";
+const KEY = "pywrscope-recent-files";
 const MAX = 8;
 
 function load(): string[] {

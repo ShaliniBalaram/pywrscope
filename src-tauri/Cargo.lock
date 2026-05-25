@@ -2479,8 +2479,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "pywr-canvas"
-version = "1.7.0"
+name = "pywrscope"
+version = "1.7.1"
 dependencies = [
  "serde",
  "serde_json",

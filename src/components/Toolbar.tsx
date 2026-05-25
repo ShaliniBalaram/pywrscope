@@ -83,7 +83,7 @@ export function Toolbar({
           fontSize: 13, color: "#fff", fontWeight: "bold",
         }}>P</div>
         <span style={{ color: "#f9fafb", fontWeight: 700, fontSize: 13, letterSpacing: "-0.01em" }}>
-          PyWR Canvas
+          PywrScope
         </span>
       </div>
 

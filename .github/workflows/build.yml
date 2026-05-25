@@ -1,4 +1,4 @@
-name: Build PyWR Canvas
+name: Build PywrScope
 
 on:
   push:
@@ -62,13 +62,22 @@ jobs:
       - name: Install npm dependencies
         run: npm install
 
+      - name: Prepare Python runtime (Unix)
+        if: matrix.platform != 'windows-latest'
+        run: bash scripts/setup-python-runtime.sh
+
+      - name: Prepare Python runtime (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: ./scripts/setup-python-runtime.ps1
+
       - name: Build and publish Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "PyWR Canvas ${{ github.ref_name }}"
+          releaseName: "PywrScope ${{ github.ref_name }}"
           releaseBody: |
             ## Installation
 
@@ -76,22 +85,22 @@ jobs:
 
             | Platform | File |
             |----------|------|
-            | **Mac — Apple Silicon (M1/M2/M3)** | `PyWR Canvas_*_aarch64.dmg` |
-            | **Mac — Intel** | `PyWR Canvas_*_x64.dmg` |
-            | **Windows** | `PyWR Canvas_*_x64-setup.exe` |
-            | **Linux (Ubuntu/Debian)** | `pywr-canvas_*_amd64.deb` |
-            | **Linux (other)** | `pywr-canvas_*_amd64.AppImage` |
+            | **Mac - Apple Silicon (M1/M2/M3)** | `PywrScope_*_aarch64.dmg` |
+            | **Mac - Intel** | `PywrScope_*_x64.dmg` |
+            | **Windows** | `PywrScope_*_x64-setup.exe` |
+            | **Linux (Ubuntu/Debian)** | `pywrscope_*_amd64.deb` |
+            | **Linux (other)** | `pywrscope_*_amd64.AppImage` |
 
-            No Python, Node.js or any other runtime required — fully standalone.
+            No Python, Node.js or any other runtime required - fully standalone.
 
             ### Mac first-time setup
             macOS blocks unsigned apps on first launch. Run once in Terminal:
             ```
-            xattr -cr /Applications/PyWR\ Canvas.app
+            xattr -cr /Applications/PywrScope.app
             ```
 
             ### Windows first-time setup
-            Click **More info** → **Run anyway** if Windows SmartScreen appears.
+            Click **More info** then **Run anyway** if Windows SmartScreen appears.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

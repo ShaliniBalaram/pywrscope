@@ -1,4 +1,4 @@
-// src-tauri/src/lib.rs — PyWR Canvas Tauri backend
+// src-tauri/src/lib.rs - PywrScope Tauri backend
 // All model logic (parse, validate, export, add-recorders) runs here in Rust.
 // File dialogs use tauri-plugin-dialog. File I/O uses std::fs directly.
 
@@ -66,7 +66,7 @@ struct ValidationIssue {
 
 // Extract (from, to) endpoints from an edge regardless of representation.
 // Pywr's canonical edge form is the array ["from", "to", ...slot_args].
-// PyWR Canvas before v1.6.0 emitted objects {"from_node":"A","to_node":"B"}
+// Earlier versions emitted objects {"from_node":"A","to_node":"B"}.
 // and validators / saved files in the wild may still use either shape — this
 // helper accepts both so validation, recorder-injection, and parsing all keep
 // working without forcing an external migration.
@@ -901,7 +901,7 @@ fn parse_model(json_path: String) -> Value {
 
     // Normalise edges to Pywr's canonical array form ["from", "to", ...slots].
     // Accept the legacy object form {"from_node","to_node"[, "from_slot", "to_slot"]}
-    // for backwards compatibility with files saved by PyWR Canvas before v1.6.0.
+    // for backwards compatibility with files saved before v1.6.0.
     let raw_edges = model
         .get("edges")
         .and_then(|e| e.as_array())
@@ -1889,7 +1889,7 @@ mod tests {
 
     #[test]
     fn validate_handles_array_edge_format() {
-        // Pywr's canonical edge shape is ["from", "to"]. As of v1.6.0 PyWR Canvas
+        // Pywr's canonical edge shape is ["from", "to"]. As of v1.6.0 this app
         // stores edges this way in memory and emits them this way on save.
         // The validator must accept arrays directly (no normalisation step needed).
         let m = json!({
@@ -1912,7 +1912,7 @@ mod tests {
 
     #[test]
     fn validate_still_accepts_legacy_object_edge_format() {
-        // Files saved by PyWR Canvas <= v1.5.x used object form. Validator must
+        // Files saved by this app <= v1.5.x used object form. Validator must
         // still accept them so users can open old files without migration.
         let m = json!({
             "nodes": [
@@ -2205,7 +2205,7 @@ mod tests {
 
         // Write to a unique tempfile so parallel test runs don't collide.
         let tmp = std::env::temp_dir().join(format!(
-            "pywr_canvas_round_trip_{}_{}_{}.json",
+            "pywrscope_round_trip_{}_{}_{}.json",
             example.replace('/', "_"),
             std::process::id(),
             next_run_id(),

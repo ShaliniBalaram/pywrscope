@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default capabilities for PyWR Canvas",
+  "description": "Default capabilities for PywrScope",
   "windows": ["main"],
   "permissions": [
     "core:default",

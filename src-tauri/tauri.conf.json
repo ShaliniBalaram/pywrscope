@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0.0",
-  "productName": "PyWR Canvas",
-  "version": "1.7.0",
-  "identifier": "com.pywrcanvas",
+  "productName": "PywrScope",
+  "version": "1.7.1",
+  "identifier": "com.pywrscope",
   "build": {
     "beforeDevCommand": "npm run dev:vite",
     "devUrl": "http://localhost:3000",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "PyWR Canvas",
+        "title": "PywrScope",
         "width": 1280,
         "height": 800,
         "minWidth": 900,

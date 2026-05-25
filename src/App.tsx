@@ -1,4 +1,4 @@
-// src/App.tsx — PyWR Canvas root component
+// src/App.tsx - PywrScope root component
 // Wires together all hooks and components.
 
 import React, { useState, useCallback, useRef } from "react";

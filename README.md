@@ -1,4 +1,4 @@
-# PyWR Canvas
+# PywrScope
 
 A desktop tool for water engineers to open, edit and validate Pywr water resource model files on an interactive map canvas.
 
@@ -6,7 +6,7 @@ A desktop tool for water engineers to open, edit and validate Pywr water resourc
 
 ## Installation
 
-Download the installer for your platform from the [Releases](https://github.com/ShaliniBalaram/pywr-canvas/releases) page.
+Download the installer for your platform from the [Releases](https://github.com/ShaliniBalaram/pywrscope/releases) page.
 
 | Platform | File to download |
 |----------|-----------------|
@@ -22,7 +22,7 @@ Download the installer for your platform from the [Releases](https://github.com/
 
 Because the app is not signed with an Apple certificate, macOS will block it on first open. This is a standard warning for free/open-source apps and is safe to bypass.
 
-**Step 1** — Open the `.dmg` and drag PyWR Canvas to your Applications folder as normal.
+**Step 1** — Open the `.dmg` and drag PywrScope to your Applications folder as normal.
 
 **Step 2** — Open Terminal (press Cmd+Space and search "Terminal") and run:
 
@@ -47,12 +47,12 @@ Windows may show a SmartScreen warning ("Windows protected your PC"). This is no
 
 ### Linux
 
-For `.deb`: double-click or run `sudo dpkg -i pywr-canvas_*.deb`
+For `.deb`: double-click or run `sudo dpkg -i pywrscope_*.deb`
 
 For `.AppImage`: make it executable first:
 ```
-chmod +x pywr-canvas_*.AppImage
-./pywr-canvas_*.AppImage
+chmod +x pywrscope_*.AppImage
+./pywrscope_*.AppImage
 ```
 
 ---
@@ -167,7 +167,7 @@ The bar at the very bottom shows:
 - Number of selected nodes
 
 ### Running a model
-PyWR Canvas ships its own Python interpreter and `pywr` install — you don't need Python on your machine.
+PywrScope ships its own Python interpreter and `pywr` install — you don't need Python on your machine.
 
 1. Open or create a model and **save it to disk** (Cmd+S / Ctrl+S). The Run button stays disabled until the file is saved and clean.
 2. Click **▶ Run** in the toolbar.
