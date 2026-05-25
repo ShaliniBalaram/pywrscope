@@ -17,19 +17,19 @@ jobs:
         include:
           # macOS — Apple Silicon (.dmg)
           - platform: macos-15
-            args: "--target aarch64-apple-darwin"
+            args: "--target aarch64-apple-darwin --bundles dmg"
             label: macOS Apple Silicon
           # macOS — Intel (.dmg)
           - platform: macos-15-intel
-            args: "--target x86_64-apple-darwin"
+            args: "--target x86_64-apple-darwin --bundles dmg"
             label: macOS Intel
           # Windows (.exe installer)
           - platform: windows-latest
-            args: ""
+            args: "--bundles nsis"
             label: Windows
-          # Linux — Debian/Ubuntu (.deb + .AppImage)
+          # Linux — Debian/Ubuntu (.deb)
           - platform: ubuntu-22.04
-            args: ""
+            args: "--bundles deb"
             label: Linux
 
     runs-on: ${{ matrix.platform }}
@@ -57,11 +57,15 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            libglpk-dev \
+            glpk-utils \
+            liblpsolve55-dev \
+            lp-solve \
             patchelf
 
       - name: Install macOS system dependencies
         if: startsWith(matrix.platform, 'macos')
-        run: brew install glpk
+        run: brew install glpk lp_solve
 
       - name: Install npm dependencies
         run: npm install
@@ -93,7 +97,6 @@ jobs:
             | **Mac - Intel** | `PywrScope_*_x64.dmg` |
             | **Windows** | `PywrScope_*_x64-setup.exe` |
             | **Linux (Ubuntu/Debian)** | `pywrscope_*_amd64.deb` |
-            | **Linux (other)** | `pywrscope_*_amd64.AppImage` |
 
             No Python, Node.js or any other runtime required - fully standalone.
 

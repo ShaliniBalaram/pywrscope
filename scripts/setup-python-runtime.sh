@@ -107,14 +107,31 @@ fi
 
 echo "[setup-python-runtime] $("${PY}" --version)"
 
+append_unique_path() {
+  local var_name="$1"
+  local value="$2"
+  local current="${!var_name:-}"
+  case ":${current}:" in
+    *":${value}:"*) ;;
+    *) export "${var_name}=${current:+${current}:}${value}" ;;
+  esac
+}
+
 if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
-  GLPK_PREFIX="$(brew --prefix glpk 2>/dev/null || true)"
-  if [[ -n "${GLPK_PREFIX}" ]]; then
-    export CFLAGS="${CFLAGS:-} -I${GLPK_PREFIX}/include"
-    export LDFLAGS="${LDFLAGS:-} -L${GLPK_PREFIX}/lib"
-    export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-}:${GLPK_PREFIX}/lib/pkgconfig"
-    echo "[setup-python-runtime] using GLPK from ${GLPK_PREFIX}"
-  fi
+  for formula in glpk lp_solve; do
+    PREFIX="$(brew --prefix "${formula}" 2>/dev/null || true)"
+    if [[ -n "${PREFIX}" ]]; then
+      export CFLAGS="${CFLAGS:-} -I${PREFIX}/include"
+      export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib -Wl,-rpath,${PREFIX}/lib"
+      append_unique_path C_INCLUDE_PATH "${PREFIX}/include"
+      append_unique_path LIBRARY_PATH "${PREFIX}/lib"
+      append_unique_path DYLD_LIBRARY_PATH "${PREFIX}/lib"
+      if [[ -d "${PREFIX}/lib/pkgconfig" ]]; then
+        append_unique_path PKG_CONFIG_PATH "${PREFIX}/lib/pkgconfig"
+      fi
+      echo "[setup-python-runtime] using ${formula} from ${PREFIX}"
+    fi
+  done
 fi
 
 echo "[setup-python-runtime] installing pywr==${PYWR_VERSION} and h5py==${H5PY_VERSION}..."
