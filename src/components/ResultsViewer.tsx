@@ -10,7 +10,7 @@
 // trust no exceptions — the bridge surfaces backend errors in-band so this
 // component only needs one error rendering path.
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 const PREVIEW_ROWS = 200;
 
@@ -468,6 +468,8 @@ function H5Body({
   onBrowse: () => void;
   onPickDataset: (name: string) => void;
 }) {
+  const [filter, setFilter] = useState("");
+  const grouped = useMemo(() => groupH5Datasets(data.datasets, filter), [data.datasets, filter]);
   return (
     <>
       <Subheader
@@ -483,38 +485,79 @@ function H5Body({
           overflow: "auto",
           backgroundColor: "#f1f5f9",
         }}>
+          <div style={{ padding: 10, borderBottom: "1px solid #e2e8f0", backgroundColor: "#fff" }}>
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter layers"
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "6px 8px",
+                border: "1px solid #cbd5e1",
+                borderRadius: 5,
+                fontSize: 12,
+              }}
+            />
+          </div>
           {data.datasets.length === 0 && (
             <div style={{ padding: 12, fontSize: 12, color: "#64748b" }}>
               No datasets found.
             </div>
           )}
-          {data.datasets.map((d) => {
-            const sel = d.name === data.selected;
-            return (
-              <button
-                key={d.name}
-                onClick={() => onPickDataset(d.name)}
-                title={d.name}
-                style={{
-                  display: "block", width: "100%", textAlign: "left",
-                  padding: "8px 12px",
-                  background: sel ? "#dbeafe" : "transparent",
-                  border: "none",
-                  borderLeft: sel ? "3px solid #1d4ed8" : "3px solid transparent",
-                  cursor: "pointer",
-                  fontSize: 12, color: "#0f172a",
-                  borderBottom: "1px solid #e2e8f0",
-                }}
-              >
-                <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {d.name}
-                </div>
-                <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
-                  shape [{d.shape.join(", ")}] · {d.dtype}
-                </div>
-              </button>
-            );
-          })}
+          {data.datasets.length > 0 && grouped.length === 0 && (
+            <div style={{ padding: 12, fontSize: 12, color: "#64748b" }}>
+              No matching layers.
+            </div>
+          )}
+          {grouped.map((group) => (
+            <div key={group.label}>
+              <div style={{
+                padding: "7px 10px",
+                backgroundColor: "#e2e8f0",
+                borderBottom: "1px solid #cbd5e1",
+                fontSize: 10,
+                fontWeight: 700,
+                color: "#334155",
+                textTransform: "uppercase",
+                letterSpacing: 0,
+              }}>
+                {group.label} ({group.datasets.length})
+              </div>
+              {group.datasets.map((d) => {
+                const sel = d.name === data.selected;
+                const parts = d.name.split("/");
+                const display = parts.slice(-2).join("/");
+                return (
+                  <button
+                    key={d.name}
+                    onClick={() => onPickDataset(d.name)}
+                    title={d.name}
+                    style={{
+                      display: "block", width: "100%", textAlign: "left",
+                      padding: "8px 12px",
+                      background: sel ? "#dbeafe" : "transparent",
+                      border: "none",
+                      borderLeft: sel ? "3px solid #1d4ed8" : "3px solid transparent",
+                      cursor: "pointer",
+                      fontSize: 12, color: "#0f172a",
+                      borderBottom: "1px solid #e2e8f0",
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {display}
+                    </div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {d.name}
+                    </div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
+                      shape [{d.shape.join(", ")}] · {d.dtype}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
 
         {/* Preview pane */}
@@ -540,6 +583,25 @@ function H5Body({
       </div>
     </>
   );
+}
+
+function groupH5Datasets(datasets: H5DatasetInfo[], filter: string): Array<{ label: string; datasets: H5DatasetInfo[] }> {
+  const needle = filter.trim().toLowerCase();
+  const groups = new Map<string, H5DatasetInfo[]>();
+  for (const dataset of datasets) {
+    if (needle && !dataset.name.toLowerCase().includes(needle)) continue;
+    const parts = dataset.name.split("/");
+    const label = parts.length >= 2 ? parts[0] : "root";
+    const list = groups.get(label) ?? [];
+    list.push(dataset);
+    groups.set(label, list);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([label, groupDatasets]) => ({
+      label,
+      datasets: groupDatasets.sort((a, b) => a.name.localeCompare(b.name)),
+    }));
 }
 
 function Subheader({ path, info, onBrowse }: { path: string; info: string; onBrowse: () => void }) {

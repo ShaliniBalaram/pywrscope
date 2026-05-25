@@ -143,6 +143,24 @@ function reachableFrom(source: string, edges: PywrModel["edges"]): Set<string> {
 }
 
 const ACTIVE_EPS = 1e-9;
+const MAIN_RESULT_NODE_TOKENS = new Set(["GW", "WTW", "DC", "BST", "NRV"]);
+
+function nodeTokens(node: PywrModel["nodes"][number]): Set<string> {
+  return new Set(
+    `${node.name} ${node.type}`
+      .toUpperCase()
+      .split(/[^A-Z0-9]+/)
+      .filter(Boolean),
+  );
+}
+
+function isMainResultNode(node: PywrModel["nodes"][number]): boolean {
+  const tokens = nodeTokens(node);
+  for (const token of MAIN_RESULT_NODE_TOKENS) {
+    if (tokens.has(token)) return true;
+  }
+  return false;
+}
 
 export function ResultsTab({
   model,
@@ -269,6 +287,16 @@ export function ResultsTab({
   // is "downstream" — same UX as before the analyzer existed, so users who
   // never click the toggle see the familiar view.
   const [view, setView] = useState<ResultsView>("downstream");
+  const [showAllNodes, setShowAllNodes] = useState(false);
+  const visibleNodes = useMemo(() => {
+    if (showAllNodes) return model.nodes;
+    const main = model.nodes.filter(isMainResultNode);
+    if (selectedNodeName && !main.some((n) => n.name === selectedNodeName)) {
+      const selected = model.nodes.find((n) => n.name === selectedNodeName);
+      if (selected) return [selected, ...main];
+    }
+    return main.length > 0 ? main : model.nodes;
+  }, [model.nodes, selectedNodeName, showAllNodes]);
 
   return (
     <div style={{ display: "flex", flex: 1, overflow: "hidden", backgroundColor: "#f8fafc" }}>
@@ -282,12 +310,23 @@ export function ResultsTab({
           padding: "10px 14px 4px 14px", fontSize: 11, color: "#64748b",
           textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700,
         }}>
-          Nodes ({model.nodes.length})
+          {showAllNodes ? "All nodes" : "Main nodes"} ({visibleNodes.length}/{model.nodes.length})
         </div>
-        <div style={{ padding: "0 14px 10px 14px", fontSize: 10, color: "#94a3b8" }}>
-          Click a node to trace its downstream Output sinks and active flows.
+        <div style={{ display: "flex", gap: 6, padding: "0 14px 10px 14px" }}>
+          <button
+            onClick={() => setShowAllNodes(false)}
+            style={smallToggleStyle(!showAllNodes)}
+          >
+            GW WTW DC BST NRV
+          </button>
+          <button
+            onClick={() => setShowAllNodes(true)}
+            style={smallToggleStyle(showAllNodes)}
+          >
+            All
+          </button>
         </div>
-        {model.nodes.map((n) => {
+        {visibleNodes.map((n) => {
           const sel = n.name === selectedNodeName;
           return (
             <button
@@ -615,6 +654,21 @@ function ToggleButton({
       {label}
     </button>
   );
+}
+
+function smallToggleStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: "4px 8px",
+    border: "1px solid",
+    borderColor: active ? "#93c5fd" : "#e2e8f0",
+    borderRadius: 5,
+    background: active ? "#dbeafe" : "#fff",
+    color: active ? "#1d4ed8" : "#475569",
+    fontSize: 10,
+    fontWeight: active ? 700 : 500,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  };
 }
 
 function DownstreamPanel({

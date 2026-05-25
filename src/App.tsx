@@ -30,6 +30,7 @@ import { StatusBar } from "./components/StatusBar";
 import { PywrNode, PywrModel } from "./types/pywr";
 import { embedPositions } from "./utils/embedPositions";
 import { extractNodePosition } from "./utils/nodePosition";
+import { computePywrModelLayout } from "./utils/dagreLayout";
 import { nextEdgeStep } from "./utils/edgeMode";
 
 // Normalise schematic coordinates (which may be OS grid refs in the 100,000s)
@@ -66,6 +67,18 @@ function normalizePositions(
     };
   }
   return result;
+}
+
+function initialPositionsForModel(model: PywrModel): Record<string, { x: number; y: number }> {
+  const generated = computePywrModelLayout(model);
+  const fromNodeCoords: Record<string, { x: number; y: number }> = {};
+  for (const node of model.nodes) {
+    const p = extractNodePosition(node);
+    if (p) fromNodeCoords[node.name] = p;
+  }
+
+  const existing = normalizePositions(fromNodeCoords);
+  return { ...generated, ...existing };
 }
 
 // Find an empty spot on the canvas that doesn't overlap existing nodes.
@@ -216,6 +229,7 @@ export default function App() {
   // When the value is a non-empty path, the viewer opens directly on that
   // file; an empty string opens the viewer in its idle "Browse…" state.
   const [resultsViewerPath, setResultsViewerPath] = useState<string | null>(null);
+  const [showRunPanel, setShowRunPanel] = useState(false);
 
   const selectedNode = selectedNodeNames.length === 1
     ? pywrJson.getNodeByName(selectedNodeNames[0])
@@ -295,8 +309,10 @@ export default function App() {
     setPlacementMode(false);
     setEdgeMode(false);
     setEdgeSource(null);
+    run.reset();
+    setShowRunPanel(false);
     prevPath.current = null;
-  }, [pywrJson, layout]);
+  }, [pywrJson, layout, run.reset]);
 
   // -----------------------------------------------------------------------
   // Open a specific path directly (from recent files list)
@@ -309,25 +325,11 @@ export default function App() {
       pywrJson.loadAtPath(path, resp.data);
       // Reset prevPath so the layout effect fires when currentPath updates
       prevPath.current = null;
-      layout.loadLayout(path).then((hasSidecar) => {
-        if (hasSidecar) return;
-        const fromNodeCoords: Record<string, { x: number; y: number }> = {};
-        for (const node of resp.data!.nodes) {
-          const p = extractNodePosition(node);
-          if (p) fromNodeCoords[node.name] = p;
-        }
-        if (Object.keys(fromNodeCoords).length > 0) {
-          const scaled = normalizePositions(fromNodeCoords);
-          for (const [name, pos] of Object.entries(scaled)) layout.setPosition(name, pos.x, pos.y);
-        } else {
-          layout.dagreLayout(resp.data!.nodes.map(n => n.name), resp.data!.edges);
-        }
-      });
       addRecentFile(path);
     } catch {
       // silently ignore — stale path
     }
-  }, [pywrJson, layout, addRecentFile]);
+  }, [pywrJson, addRecentFile]);
 
   // -----------------------------------------------------------------------
   // Auto-layout: re-arrange all nodes using dagre topology
@@ -338,11 +340,9 @@ export default function App() {
     layout.pushPositionHistory();
     undoOrderRef.current = [...undoOrderRef.current, "position"];
     redoOrderRef.current = [];
-    layout.dagreLayout(
-      pywrJson.model.nodes.map(n => n.name),
-      pywrJson.model.edges
-    );
-    pywrJson.markDirty();
+    const positions = computePywrModelLayout(pywrJson.model);
+    layout.setAllPositions(positions);
+    pywrJson.updateNodePositions(positions);
   }, [pywrJson, layout]);
 
   // -----------------------------------------------------------------------
@@ -355,11 +355,19 @@ export default function App() {
     // We do this in an effect below via currentPath change
   }, [pywrJson]);
 
+  const startRun = useCallback(() => {
+    if (!pywrJson.currentPath) return;
+    setShowRunPanel(true);
+    void run.start(pywrJson.currentPath);
+  }, [pywrJson.currentPath, run.start]);
+
   // When currentPath changes (new file opened), load layout + record in recent files
   const prevPath = React.useRef<string | null>(null);
   React.useEffect(() => {
     if (pywrJson.currentPath && pywrJson.model && pywrJson.currentPath !== prevPath.current) {
       prevPath.current = pywrJson.currentPath;
+      run.reset();
+      setShowRunPanel(false);
       addRecentFile(pywrJson.currentPath);
       layout.loadLayout(pywrJson.currentPath).then((hasSidecarPositions) => {
         if (hasSidecarPositions) {
@@ -367,31 +375,15 @@ export default function App() {
           return;
         }
 
-        // No sidecar: check if nodes carry position data via the Pywr `position`
-        // object. Preference order and validity rules live in extractNodePosition
-        // (utils/nodePosition.ts) so the read path stays symmetric with the write
-        // path used on save.
-        const fromNodeCoords: Record<string, { x: number; y: number }> = {};
-        for (const node of pywrJson.model!.nodes) {
-          const p = extractNodePosition(node);
-          if (p) fromNodeCoords[node.name] = p;
-        }
-
-        if (Object.keys(fromNodeCoords).length > 0) {
-          const scaled = normalizePositions(fromNodeCoords);
-          for (const [name, pos] of Object.entries(scaled)) {
-            layout.setPosition(name, pos.x, pos.y);
-          }
-        } else {
-          // No coordinates anywhere — use dagre for a sensible network layout.
-          layout.dagreLayout(
-            pywrJson.model!.nodes.map((n) => n.name),
-            pywrJson.model!.edges
-          );
-        }
+        // No sidecar: preserve any embedded Pywr positions, generate only the
+        // missing ones, and immediately write the merged layout back into the
+        // in-memory JSON so the JSON tab is honest before the user saves.
+        const positions = initialPositionsForModel(pywrJson.model!);
+        layout.setAllPositions(positions);
+        pywrJson.updateNodePositions(positions);
       });
     }
-  }, [pywrJson.currentPath, pywrJson.model, layout]);
+  }, [pywrJson.currentPath, pywrJson.model, layout, run.reset]);
 
   // -----------------------------------------------------------------------
   // Save: export model + write layout sidecar
@@ -453,6 +445,8 @@ export default function App() {
   React.useEffect(() => { isDirtyRef.current = pywrJson.isDirty; }, [pywrJson.isDirty]);
 
   const doClose = React.useCallback(() => {
+    forceCloseRef.current = true;
+    isDirtyRef.current = false;
     window.pywr.quit();
   }, []);
 
@@ -702,12 +696,7 @@ export default function App() {
         recentFiles={recentFiles}
         onOpenRecent={handleOpenRecent}
         onAutoLayout={handleAutoLayout}
-        onRun={() => {
-          // The button is gated by runDisabledReason below, so currentPath is
-          // guaranteed non-null here. Belt-and-braces guard for the assert.
-          if (!pywrJson.currentPath) return;
-          run.start(pywrJson.currentPath);
-        }}
+        onRun={startRun}
         runDisabledReason={
           // Carve-outs in priority order: no model loaded → no path → unsaved
           // edits → already running. Each reason is a tooltip on the disabled
@@ -716,7 +705,7 @@ export default function App() {
             ? "Open or create a model first"
             : !pywrJson.currentPath
               ? "Save the model to a file before running"
-              : pywrJson.isDirty
+            : pywrJson.hasRunBlockingChanges
                 ? "Save your changes before running"
                 : run.state.status === "running" || run.state.status === "starting"
                   ? "A run is already in progress"
@@ -891,13 +880,13 @@ export default function App() {
                     ? "Open or create a model first"
                     : !pywrJson.currentPath
                       ? "Save the model to a file before running"
-                      : pywrJson.isDirty
+                      : pywrJson.hasRunBlockingChanges
                         ? "Save your changes before running"
                         : run.state.status === "running" || run.state.status === "starting"
                           ? "A run is already in progress"
                           : null
                 }
-                onRun={() => { if (pywrJson.currentPath) run.start(pywrJson.currentPath); }}
+                onRun={startRun}
                 onCancelRun={run.cancel}
                 onOpenResults={(initialPath) => setResultsViewerPath(initialPath ?? "")}
               />
@@ -989,8 +978,7 @@ export default function App() {
           }}
           onDiscard={() => {
             setShowCloseDialog(false);
-            doClose(
-            );
+            doClose();
           }}
           onCancel={() => setShowCloseDialog(false)}
         />
@@ -1106,11 +1094,11 @@ export default function App() {
       )}
 
       {/* Run panel — only present when a run is active or just-finished. */}
-      {run.state.status !== "idle" && (
+      {showRunPanel && run.state.status !== "idle" && (
         <RunPanel
           state={run.state}
           onCancel={run.cancel}
-          onClose={run.reset}
+          onClose={() => setShowRunPanel(false)}
         />
       )}
 
@@ -1128,6 +1116,17 @@ export default function App() {
         model={pywrJson.model}
         currentPath={pywrJson.currentPath}
         isDirty={pywrJson.isDirty}
+        runDisabledReason={
+          !pywrJson.model
+            ? "Open or create a model first"
+            : !pywrJson.currentPath
+              ? "Save the model to a file before running"
+              : pywrJson.hasRunBlockingChanges
+                ? "Save model changes before running"
+                : run.state.status === "running" || run.state.status === "starting"
+                  ? "Run in progress"
+                  : null
+        }
         selectedCount={selectedNodeNames.length}
       />
     </div>

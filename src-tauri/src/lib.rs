@@ -5,6 +5,8 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -807,7 +809,8 @@ async fn run_h5_helper(app: &tauri::AppHandle, args: Vec<String>) -> Result<Valu
     if !script.is_file() {
         return Err(format!("HDF5 helper not found at {}", script.display()));
     }
-    let output = tokio::process::Command::new(&py)
+    let mut cmd = python_command(&py);
+    let output = cmd
         .arg(&script)
         .args(&args)
         .output()
@@ -1143,6 +1146,20 @@ fn python_binary_with_override(runtime_dir: &Path, override_path: Option<String>
     }
 }
 
+fn python_command(py: &Path) -> tokio::process::Command {
+    #[cfg(windows)]
+    {
+        let mut cmd = tokio::process::Command::new(py);
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        tokio::process::Command::new(py)
+    }
+}
+
 fn bridge_script(runtime_dir: &Path) -> PathBuf {
     runtime_dir.join("run_pywr.py")
 }
@@ -1195,7 +1212,8 @@ async fn run_model(
     let run_id = next_run_id();
     let event_name = format!("pywr://run/{}", run_id);
 
-    let mut child = tokio::process::Command::new(&py)
+    let mut cmd = python_command(&py);
+    let mut child = cmd
         .arg(&script)
         .arg("--model")
         .arg(&json_path)
@@ -1299,12 +1317,8 @@ async fn check_python(app: tauri::AppHandle) -> CheckPythonResult {
         except Exception as e:\n    print(json.dumps({'ok': False, 'msg': f'pywr import failed: {e}'})); sys.exit(0)\n\
         print(json.dumps({'ok': True, 'python_version': sys.version.split()[0], 'pywr_version': v}))";
 
-    let output = match tokio::process::Command::new(&py)
-        .arg("-c")
-        .arg(script)
-        .output()
-        .await
-    {
+    let mut cmd = python_command(&py);
+    let output = match cmd.arg("-c").arg(script).output().await {
         Ok(o) => o,
         Err(e) => {
             return CheckPythonResult::Err {

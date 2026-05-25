@@ -28,6 +28,7 @@
 import argparse
 import csv
 import json
+import math
 import signal
 import sys
 import traceback
@@ -38,8 +39,18 @@ from urllib.parse import urlparse, unquote
 # Single source of truth for emitting events. flush=True is mandatory — without
 # it stdout is block-buffered when piped, so the UI sees nothing until the
 # process exits, which defeats the entire progress-stream design.
+def json_safe(value):
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    return value
+
+
 def emit(payload: dict) -> None:
-    sys.stdout.write(json.dumps(payload, default=str) + "\n")
+    sys.stdout.write(json.dumps(json_safe(payload), default=str, allow_nan=False) + "\n")
     sys.stdout.flush()
 
 
@@ -283,13 +294,13 @@ def main() -> int:
     # summary.json is the canonical machine-readable result. The UI reads this
     # to populate the "Run results" view; CSVs are for export to other tools.
     summary_path = out_dir / "summary.json"
-    summary_path.write_text(json.dumps({
+    summary_path.write_text(json.dumps(json_safe({
         "model": str(model_path),
         "timesteps": total,
         "scenarios": len(model.scenarios.combinations) if hasattr(model, "scenarios") else 1,
         "seconds": elapsed,
         "recorders": summary,
-    }, indent=2))
+    }), indent=2, allow_nan=False))
     outputs.append({"name": "summary", "path": str(summary_path)})
 
     # T2.5 — aggregate per-edge flows from the captured route flows. Output
@@ -487,7 +498,7 @@ def _write_results_h5(
             summary_group = h5.create_group("summary")
             summary_group.create_dataset(
                 "recorders_json",
-                data=json.dumps(summary, default=str),
+                data=json.dumps(json_safe(summary), default=str, allow_nan=False),
                 dtype=string_dtype,
             )
         return True
@@ -645,7 +656,7 @@ def _write_edge_flows(model, edge_path: Path, days_span: int) -> bool:
         "totalRoutes": n_routes,
         "timesteps": days_span,
     }
-    edge_path.write_text(json.dumps(payload, indent=2))
+    edge_path.write_text(json.dumps(json_safe(payload), indent=2, allow_nan=False))
     return True
 
 

@@ -51,6 +51,7 @@ describe('newModel', () => {
     expect(result.current.model!.nodes).toHaveLength(0);
     expect(result.current.model!.edges).toHaveLength(0);
     expect(result.current.isDirty).toBe(false);
+    expect(result.current.hasRunBlockingChanges).toBe(false);
   });
 
   it('clears undo history on newModel()', () => {
@@ -72,6 +73,7 @@ describe('addNode', () => {
     expect(result.current.model!.nodes).toHaveLength(1);
     expect(result.current.model!.nodes[0].name).toBe('Source1');
     expect(result.current.isDirty).toBe(true);
+    expect(result.current.hasRunBlockingChanges).toBe(true);
   });
 
   it('pushes to undo history', () => {
@@ -325,6 +327,21 @@ describe('updateNodePosition / updateNodePositions', () => {
     expect(result.current.isDirty).toBe(false);
     act(() => { result.current.updateNodePosition('A', 7, 8); });
     expect(result.current.isDirty).toBe(true);
+  });
+
+  it('does not block Run for position-only changes after a saved model is loaded', () => {
+    const { result } = renderHook(() => usePywrJson());
+    act(() => {
+      result.current.loadAtPath('/tmp/model.json', {
+        ...blankModel(),
+        nodes: [{ name: 'A', type: 'Input' }],
+      });
+    });
+
+    act(() => { result.current.updateNodePosition('A', 7, 8); });
+
+    expect(result.current.isDirty).toBe(true);
+    expect(result.current.hasRunBlockingChanges).toBe(false);
   });
 });
 

@@ -8,10 +8,11 @@ interface StatusBarProps {
   model: PywrModel | null;
   currentPath: string | null;
   isDirty: boolean;
+  runDisabledReason: string | null;
   selectedCount: number;
 }
 
-export function StatusBar({ model, currentPath, isDirty, selectedCount }: StatusBarProps) {
+export function StatusBar({ model, currentPath, isDirty, runDisabledReason, selectedCount }: StatusBarProps) {
   const fileName = currentPath
     ? currentPath.split(/[\\/]/).pop()
     : model
@@ -63,8 +64,14 @@ export function StatusBar({ model, currentPath, isDirty, selectedCount }: Status
       <div style={{ flex: 1 }} />
 
       {model && (
+        <span style={{ color: runDisabledReason ? "#fbbf24" : "#34d399", fontSize: 11 }}>
+          {runDisabledReason ? `Run: ${runDisabledReason}` : "Run ready"}
+        </span>
+      )}
+
+      {model && (
         <span style={{ color: "#374151", fontSize: 11 }}>
-          Pywr Canvas
+          PywrScope
         </span>
       )}
     </div>

@@ -2,7 +2,7 @@
 // Tests for the dagre layout utility
 
 import { describe, it, expect } from 'vitest';
-import { computeDagreLayout } from '../utils/dagreLayout';
+import { computeDagreLayout, computePywrModelLayout } from '../utils/dagreLayout';
 
 describe('computeDagreLayout', () => {
   it('returns empty object for empty input', () => {
@@ -89,5 +89,31 @@ describe('computeDagreLayout', () => {
     expect(() => computeDagreLayout(nodes, edges)).not.toThrow();
     const result = computeDagreLayout(nodes, edges);
     expect(Object.keys(result)).toHaveLength(50);
+  });
+});
+
+describe('computePywrModelLayout', () => {
+  it('places disconnected reference nodes near the nodes they aggregate', () => {
+    const result = computePywrModelLayout({
+      metadata: {},
+      timestepper: { start: '2026-01-01', end: '2026-01-02', timestep: 1 },
+      nodes: [
+        { name: 'GW_A', type: 'Input' },
+        { name: 'WTW_A', type: 'Link' },
+        { name: 'DC_A', type: 'Output' },
+        { name: 'Virtual_GW_group', type: 'AggregatedNode', nodes: ['GW_A', 'WTW_A'] },
+      ],
+      edges: [
+        ['GW_A', 'WTW_A'],
+        ['WTW_A', 'DC_A'],
+      ],
+      parameters: {},
+      recorders: {},
+    });
+
+    const refMidX = (result.GW_A.x + result.WTW_A.x) / 2;
+    const refMidY = (result.GW_A.y + result.WTW_A.y) / 2;
+    expect(Math.abs(result.Virtual_GW_group.x - refMidX)).toBeLessThan(140);
+    expect(Math.abs(result.Virtual_GW_group.y - refMidY)).toBeLessThan(140);
   });
 });

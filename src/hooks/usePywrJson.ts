@@ -108,6 +108,7 @@ interface UsePywrJsonReturn {
   getEdgesForNode: (name: string) => Array<[string, string]>;
   getOrphanedNodes: (removedName: string) => { upstream: string[]; downstream: string[] };
   isDirty: boolean;
+  hasRunBlockingChanges: boolean;
   markSaved: () => void;
   markDirty: () => void;
   undo: () => void;
@@ -128,6 +129,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const [hasRunBlockingChanges, setHasRunBlockingChanges] = useState(false);
 
   // Undo/redo history — store up to 50 snapshots
   const [past, setPast] = useState<PywrModel[]>([]);
@@ -169,6 +171,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
     setFuture([]);
     setHistoryLog([{ label: "New model created", timestamp: new Date() }]);
     setIsDirty(false);
+    setHasRunBlockingChanges(false);
     optionsRef.current?.onClearHistory?.();
   }, []);
 
@@ -199,6 +202,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
       setFuture([]);
       setHistoryLog([{ label: `Opened ${path.split(/[\\/]/).pop()}`, timestamp: new Date() }]);
       setIsDirty(false);
+      setHasRunBlockingChanges(false);
       optionsRef.current?.onClearHistory?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error opening file");
@@ -217,6 +221,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
     setFuture([]);
     setHistoryLog([{ label: `Opened ${path.split(/[\\/]/).pop()}`, timestamp: new Date() }]);
     setIsDirty(false);
+    setHasRunBlockingChanges(false);
     optionsRef.current?.onClearHistory?.();
   }, []);
 
@@ -227,6 +232,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
     pushToHistory("Edit JSON");
     setModel(newModel);
     setIsDirty(true);
+    setHasRunBlockingChanges(true);
   }, [pushToHistory]);
 
   // -------------------------------------------------------------------------
@@ -240,6 +246,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
       setFuture((f) => (modelRef.current ? [modelRef.current, ...f.slice(0, 49)] : f));
       setModel(restored);
       setIsDirty(true);
+      setHasRunBlockingChanges(true);
       setHistoryLog((log) => [{ label: "Undo", timestamp: new Date() }, ...log.slice(0, 199)]);
       return newPast;
     });
@@ -253,6 +260,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
       setPast((p) => (modelRef.current ? [...p.slice(-49), modelRef.current] : p));
       setModel(restored);
       setIsDirty(true);
+      setHasRunBlockingChanges(true);
       setHistoryLog((log) => [{ label: "Redo", timestamp: new Date() }, ...log.slice(0, 199)]);
       return newFuture;
     });
@@ -268,6 +276,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
       return { ...prev, nodes: [...prev.nodes, node] };
     });
     setIsDirty(true);
+    setHasRunBlockingChanges(true);
   }, [pushToHistory]);
 
   // -------------------------------------------------------------------------
@@ -293,6 +302,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
       return { ...prev, nodes, edges, recorders };
     });
     setIsDirty(true);
+    setHasRunBlockingChanges(true);
   }, [pushToHistory]);
 
   // -------------------------------------------------------------------------
@@ -311,6 +321,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
       };
     });
     setIsDirty(true);
+    setHasRunBlockingChanges(true);
   }, [pushToHistory]);
 
   // -------------------------------------------------------------------------
@@ -324,6 +335,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
       return { ...prev, edges: [...prev.edges, edge] };
     });
     setIsDirty(true);
+    setHasRunBlockingChanges(true);
   }, [pushToHistory]);
 
   // -------------------------------------------------------------------------
@@ -344,6 +356,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
       return { ...prev, edges };
     });
     setIsDirty(true);
+    setHasRunBlockingChanges(true);
   }, [pushToHistory]);
 
   // -------------------------------------------------------------------------
@@ -417,6 +430,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
       };
     });
     setIsDirty(true);
+    setHasRunBlockingChanges(true);
   }, [pushToHistory]);
 
   // -------------------------------------------------------------------------
@@ -428,6 +442,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
       return { ...prev, parameters: { ...prev.parameters, [name]: def } };
     });
     setIsDirty(true);
+    setHasRunBlockingChanges(true);
   }, []);
 
   const removeParameter = useCallback((name: string) => {
@@ -437,6 +452,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
       return { ...prev, parameters: rest };
     });
     setIsDirty(true);
+    setHasRunBlockingChanges(true);
   }, []);
 
   // -------------------------------------------------------------------------
@@ -523,9 +539,12 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
   );
 
   // -------------------------------------------------------------------------
-  // markSaved — resets isDirty (called by export flow)
+  // markSaved — resets dirty flags (called by export flow)
   // -------------------------------------------------------------------------
-  const markSaved = useCallback(() => { setIsDirty(false); }, []);
+  const markSaved = useCallback(() => {
+    setIsDirty(false);
+    setHasRunBlockingChanges(false);
+  }, []);
   const markDirty = useCallback(() => { setIsDirty(true); }, []);
 
   return {
@@ -551,6 +570,7 @@ export function usePywrJson(options?: UsePywrJsonOptions): UsePywrJsonReturn {
     getEdgesForNode,
     getOrphanedNodes,
     isDirty,
+    hasRunBlockingChanges,
     markSaved,
     markDirty,
     undo,

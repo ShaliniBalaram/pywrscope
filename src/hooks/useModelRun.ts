@@ -164,8 +164,8 @@ export function useModelRun(): UseModelRunReturn {
   }, []);
 
   const start = useCallback(async (jsonPath: string, outDir?: string) => {
-    // Prevent overlapping runs. Callers should reset() between runs; the
-    // toolbar's Run button enforces this by being disabled when status !== idle.
+    // Prevent overlapping runs. Terminal runs can be replaced by a fresh run;
+    // dismissing the panel only hides it and leaves results available.
     setState((prev) => {
       if (prev.status === "running" || prev.status === "starting") {
         return prev;
