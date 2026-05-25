@@ -14,6 +14,7 @@ interface PywrNodeData {
   colour: string;
   shape: NodeShape;
   highlighted: boolean;
+  traceRole?: "upstream" | "downstream" | "both";
   isEditing: boolean;
   showLabels: boolean;
   onRenameComplete: (newName: string) => void;
@@ -92,10 +93,15 @@ function ShapeSvg({
 }
 
 export function PywrNodeComponent({ data, selected }: NodeProps<PywrNodeData>) {
-  const { label, colour, shape, highlighted, isEditing, showLabels, onRenameComplete } = data;
+  const { label, colour, shape, highlighted, traceRole, isEditing, showLabels, onRenameComplete } = data;
   const { w, h } = shapeDims(shape.shape);
 
-  const accentColour = highlighted ? "#FFD700" : selected ? "#3b82f6" : undefined;
+  const traceColour =
+    traceRole === "both" ? "#8b5cf6" :
+    traceRole === "upstream" ? "#f59e0b" :
+    traceRole === "downstream" ? "#0ea5e9" :
+    undefined;
+  const accentColour = highlighted ? "#FFD700" : selected ? "#3b82f6" : traceColour;
 
   return (
     <div style={{ position: "relative", width: w, height: h }}>

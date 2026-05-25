@@ -1,4 +1,4 @@
-# End-to-End Manual Test Checklist — Pywrscope
+# End-to-End Manual Test Checklist — PyWR Canvas
 
 Run these steps in order on a freshly started application.
 
@@ -7,7 +7,7 @@ Run these steps in order on a freshly started application.
 ## Setup
 
 - [ ] `npm install` completed without errors
-- [ ] `npm run dev` opens the Electron window with title "Pywrscope"
+- [ ] `npm run dev` opens the Electron window with title "PyWR Canvas"
 
 ---
 

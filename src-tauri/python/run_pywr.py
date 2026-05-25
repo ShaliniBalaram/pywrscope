@@ -26,12 +26,13 @@
 # event then exits 130 (matching Ctrl+C convention).
 
 import argparse
+import csv
 import json
-import os
 import signal
 import sys
 import traceback
 from pathlib import Path
+from urllib.parse import urlparse, unquote
 
 
 # Single source of truth for emitting events. flush=True is mandatory — without
@@ -50,6 +51,82 @@ def fail(code: str, message: str, exc: BaseException | None = None) -> None:
         "traceback": traceback.format_exc() if exc is not None else "",
     })
     sys.exit(1)
+
+
+EXTERNAL_REF_KEYS = {"url", "path", "file", "filename", "filepath"}
+EXTERNAL_REF_SUFFIXES = {
+    ".csv", ".xlsx", ".xls", ".xlsm", ".h5", ".hdf5", ".json"
+}
+
+
+def _is_remote_ref(raw: str) -> bool:
+    parsed = urlparse(raw)
+    # Avoid treating Windows drive letters (C:\...) as URL schemes.
+    if len(parsed.scheme) == 1:
+        return False
+    return parsed.scheme not in {"", "file"}
+
+
+def _resolve_file_ref(raw: str, model_dir: Path) -> Path:
+    parsed = urlparse(raw)
+    if parsed.scheme == "file":
+        return Path(unquote(parsed.path)).expanduser()
+    p = Path(raw).expanduser()
+    return p if p.is_absolute() else model_dir / p
+
+
+def _looks_like_file_ref(key: str | None, value: str, in_includes: bool) -> bool:
+    if not value.strip() or _is_remote_ref(value):
+        return False
+    suffix = Path(urlparse(value).path).suffix.lower()
+    if in_includes:
+        return suffix == ".json"
+    return key in EXTERNAL_REF_KEYS and suffix in EXTERNAL_REF_SUFFIXES
+
+
+def _iter_external_refs(value, path: str = "$", key: str | None = None):
+    if isinstance(value, dict):
+        for k, v in value.items():
+            child_path = f"{path}.{k}"
+            yield from _iter_external_refs(v, child_path, k)
+    elif isinstance(value, list):
+        in_includes = path == "$.includes"
+        for i, v in enumerate(value):
+            child_path = f"{path}[{i}]"
+            yield from _iter_external_refs(v, child_path, key if in_includes else None)
+    elif isinstance(value, str):
+        if _looks_like_file_ref(key, value, path.startswith("$.includes")):
+            yield path, value
+
+
+def validate_external_files(model_path: Path) -> None:
+    try:
+        model = json.loads(model_path.read_text())
+    except Exception:
+        # Let Model.load produce the canonical Pywr parse error and traceback.
+        return
+
+    model_dir = model_path.parent
+    missing: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for json_path, raw_ref in _iter_external_refs(model):
+        key = (json_path, raw_ref)
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved = _resolve_file_ref(raw_ref, model_dir)
+        if not resolved.exists():
+            missing.append(f"{json_path}: {raw_ref} -> {resolved}")
+
+    if missing:
+        preview = "\n".join(f"- {m}" for m in missing[:20])
+        extra = "" if len(missing) <= 20 else f"\n... and {len(missing) - 20} more"
+        fail(
+            "MODEL_LOAD_FAILED",
+            "Missing external file(s) referenced by model. Keep Excel/CSV/HDF5/"
+            "included JSON files in the same folder as the model, or update the "
+            f"paths before running:\n{preview}{extra}",
+        )
 
 
 def install_cancel_handler() -> None:
@@ -77,6 +154,7 @@ def main() -> int:
     if not model_path.is_file():
         fail("MODEL_LOAD_FAILED", f"Model file does not exist: {model_path}")
 
+    validate_external_files(model_path)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Imports are inside main() so an import failure surfaces as a typed event
@@ -225,6 +303,10 @@ def main() -> int:
         if _write_edge_flows(model, edge_path, days_span):
             outputs.append({"name": "edge_flows", "path": str(edge_path)})
 
+    h5_path = out_dir / "results.h5"
+    if _write_results_h5(outputs, summary, h5_path, model_path, total, elapsed):
+        outputs.append({"name": "results_h5", "path": str(h5_path)})
+
     emit({
         "type": "done",
         "outputs": outputs,
@@ -322,6 +404,95 @@ def _write_recorder_csv(rec, csv_path: Path, step_dates: list) -> bool:
                 f.write(d + "," + ",".join(f"{v:.6g}" for v in row) + "\n")
         return True
     except Exception:  # noqa: BLE001 — recorder serialisation is best-effort
+        return False
+
+
+def _write_results_h5(
+    outputs: list[dict],
+    summary: dict,
+    h5_path: Path,
+    model_path: Path,
+    timesteps: int,
+    seconds: float,
+) -> bool:
+    """Write all per-recorder CSV outputs into one portable HDF5 file.
+
+    Schema:
+      /recorders/<safe-recorder-name>/date    string[N]
+      /recorders/<safe-recorder-name>/values  float[N, scenarios]
+      /summary/recorders_json                 JSON string of aggregate values
+
+    H5 is an optional export format. If h5py is unavailable, skip quietly so a
+    stripped runtime can still run models and emit CSV/JSON outputs.
+    """
+    try:
+        import h5py
+        import numpy as np
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"h5 output skipped: h5py/numpy unavailable: {e}\n")
+        return False
+
+    recorder_outputs = [
+        o for o in outputs
+        if str(o.get("path", "")).lower().endswith(".csv")
+    ]
+    if not recorder_outputs and not summary:
+        return False
+
+    try:
+        with h5py.File(h5_path, "w") as h5:
+            h5.attrs["model"] = str(model_path)
+            h5.attrs["timesteps"] = timesteps
+            h5.attrs["seconds"] = seconds
+
+            rec_root = h5.create_group("recorders")
+            string_dtype = h5py.string_dtype(encoding="utf-8")
+            for output in recorder_outputs:
+                name = str(output.get("name", "recorder"))
+                path = Path(str(output.get("path", "")))
+                if not path.is_file():
+                    continue
+                with path.open("r", encoding="utf-8", newline="") as f:
+                    rows = list(csv.reader(f))
+                if not rows:
+                    continue
+
+                headers = rows[0]
+                dates: list[str] = []
+                values: list[list[float]] = []
+                for row in rows[1:]:
+                    if not row:
+                        continue
+                    dates.append(row[0])
+                    vals = []
+                    for cell in row[1:]:
+                        try:
+                            vals.append(float(cell))
+                        except ValueError:
+                            vals.append(float("nan"))
+                    values.append(vals)
+
+                width = max((len(v) for v in values), default=max(0, len(headers) - 1))
+                arr = np.full((len(values), width), np.nan, dtype=float)
+                for r, vals in enumerate(values):
+                    arr[r, :len(vals)] = vals
+
+                group = rec_root.create_group(_safe_filename(name))
+                group.attrs["name"] = name
+                group.attrs["source_csv"] = str(path)
+                group.attrs["columns_json"] = json.dumps(headers[1:])
+                group.create_dataset("date", data=np.asarray(dates, dtype=object), dtype=string_dtype)
+                group.create_dataset("values", data=arr, compression="gzip")
+
+            summary_group = h5.create_group("summary")
+            summary_group.create_dataset(
+                "recorders_json",
+                data=json.dumps(summary, default=str),
+                dtype=string_dtype,
+            )
+        return True
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"h5 output skipped: {e}\n")
         return False
 
 

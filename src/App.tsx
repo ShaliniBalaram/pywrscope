@@ -1,4 +1,4 @@
-// src/App.tsx — Pywrscope root component
+// src/App.tsx — PyWR Canvas root component
 // Wires together all hooks and components.
 
 import React, { useState, useCallback, useRef } from "react";
@@ -8,7 +8,7 @@ import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useModelRun } from "./hooks/useModelRun";
 import { useRunResults, activeFlowEdges as computeActiveFlowEdges } from "./hooks/useRunResults";
 import { RunPanel } from "./components/RunPanel";
-import { Canvas, CanvasHandle } from "./components/Canvas";
+import { Canvas, CanvasHandle, TraceMode, TraceSummary } from "./components/Canvas";
 import { NodePalette, createNodeFromDrop } from "./components/NodePalette";
 import { PropertiesPanel } from "./components/PropertiesPanel";
 import { DeleteNodeDialog } from "./components/DeleteNodeDialog";
@@ -23,6 +23,7 @@ import { ResultsTab } from "./components/ResultsTab";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { SaveBeforeCloseDialog } from "./components/SaveBeforeCloseDialog";
 import { AddNodeModal } from "./components/AddNodeModal";
+import { RecorderManager } from "./components/RecorderManager";
 import { NodePlacementPopup } from "./components/NodePlacementPopup";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { StatusBar } from "./components/StatusBar";
@@ -92,6 +93,63 @@ function findEmptySpot(
   return { x: Math.round(cx + 200), y: Math.round(cy + 200) };
 }
 
+interface TopologyTrace {
+  upstreamNodes: Set<string>;
+  downstreamNodes: Set<string>;
+  upstreamEdges: Set<string>;
+  downstreamEdges: Set<string>;
+  inboundCount: number;
+  outboundCount: number;
+}
+
+function topologyTrace(model: PywrModel, startNode: string): TopologyTrace {
+  const outgoing = new Map<string, string[]>();
+  const incoming = new Map<string, string[]>();
+
+  for (const edge of model.edges) {
+    const [from, to] = edge;
+    if (!from || !to) continue;
+    if (!outgoing.has(from)) outgoing.set(from, []);
+    if (!incoming.has(to)) incoming.set(to, []);
+    outgoing.get(from)!.push(to);
+    incoming.get(to)!.push(from);
+  }
+
+  const walk = (
+    initial: string,
+    nextMap: Map<string, string[]>,
+    keyFor: (from: string, to: string) => string,
+  ): { nodes: Set<string>; edges: Set<string> } => {
+    const nodes = new Set<string>();
+    const edges = new Set<string>();
+    const seen = new Set<string>([initial]);
+    const queue = [initial];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const next of nextMap.get(current) ?? []) {
+        edges.add(keyFor(current, next));
+        nodes.add(next);
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push(next);
+        }
+      }
+    }
+    return { nodes, edges };
+  };
+
+  const downstream = walk(startNode, outgoing, (from, to) => `${from}->${to}`);
+  const upstream = walk(startNode, incoming, (to, from) => `${from}->${to}`);
+  return {
+    upstreamNodes: upstream.nodes,
+    downstreamNodes: downstream.nodes,
+    upstreamEdges: upstream.edges,
+    downstreamEdges: downstream.edges,
+    inboundCount: incoming.get(startNode)?.length ?? 0,
+    outboundCount: outgoing.get(startNode)?.length ?? 0,
+  };
+}
+
 export default function App() {
   // Unified undo/redo order — tracks whether each action was a model change or
   // a position change (layout), so Cmd+Z restores them in the correct sequence.
@@ -153,6 +211,7 @@ export default function App() {
   const [placementData, setPlacementData] = useState<{flowX: number; flowY: number; screenX: number; screenY: number; defaultName: string} | null>(null);
   const [edgeMode, setEdgeMode] = useState(false);
   const [edgeSource, setEdgeSource] = useState<string | null>(null);
+  const [traceMode, setTraceMode] = useState<TraceMode>("both");
   // Results viewer state. `null` = closed; a string (or empty string) = open.
   // When the value is a non-empty path, the viewer opens directly on that
   // file; an empty string opens the viewer in its idle "Browse…" state.
@@ -177,6 +236,49 @@ export default function App() {
       runResults.activeNodes,
     );
   }, [pywrJson.model, selectedNodeNames, runResults.activeNodes]);
+
+  const topology = React.useMemo(() => {
+    if (!pywrJson.model) return null;
+    if (selectedNodeNames.length !== 1) return null;
+    return topologyTrace(pywrJson.model, selectedNodeNames[0]);
+  }, [pywrJson.model, selectedNodeNames]);
+
+  const tracedTopologyEdges = React.useMemo(() => {
+    if (!topology || traceMode === "active") return new Set<string>();
+    if (traceMode === "upstream") return topology.upstreamEdges;
+    if (traceMode === "downstream") return topology.downstreamEdges;
+    return new Set([...topology.upstreamEdges, ...topology.downstreamEdges]);
+  }, [topology, traceMode]);
+
+  const tracedNodeRoles = React.useMemo(() => {
+    const roles = new Map<string, "upstream" | "downstream" | "both">();
+    if (!topology || traceMode === "active") return roles;
+    if (traceMode !== "downstream") {
+      for (const name of topology.upstreamNodes) roles.set(name, "upstream");
+    }
+    if (traceMode !== "upstream") {
+      for (const name of topology.downstreamNodes) {
+        roles.set(name, roles.has(name) ? "both" : "downstream");
+      }
+    }
+    return roles;
+  }, [topology, traceMode]);
+
+  const traceSummary = React.useMemo<TraceSummary | null>(() => {
+    if (!pywrJson.model || !topology || selectedNodeNames.length !== 1) return null;
+    const selectedName = selectedNodeNames[0];
+    const node = pywrJson.model.nodes.find((n) => n.name === selectedName);
+    return {
+      selectedName,
+      nodeType: node?.type ?? "Node",
+      inboundCount: topology.inboundCount,
+      outboundCount: topology.outboundCount,
+      upstreamCount: topology.upstreamNodes.size,
+      downstreamCount: topology.downstreamNodes.size,
+      tracedEdgeCount: tracedTopologyEdges.size,
+      activeEdgeCount: activeFlowEdges.size,
+    };
+  }, [pywrJson.model, topology, selectedNodeNames, tracedTopologyEdges, activeFlowEdges]);
 
   // -----------------------------------------------------------------------
   // New model: blank canvas, ready to add nodes and a background image
@@ -650,6 +752,8 @@ export default function App() {
               backgroundImage={layout.backgroundImage}
               backgroundOpacity={layout.backgroundOpacity}
               activeFlowEdges={activeFlowEdges}
+              tracedTopologyEdges={tracedTopologyEdges}
+              tracedNodeRoles={tracedNodeRoles}
               selectedNodeNames={selectedNodeNames}
               selectedEdge={selectedEdge}
               editingNodeName={editingNodeName}
@@ -660,6 +764,8 @@ export default function App() {
               placementMode={placementMode}
               edgeMode={edgeMode}
               edgeSource={edgeSource}
+              traceMode={traceMode}
+              traceSummary={traceSummary}
               onNodeSelect={(name, addToSelection) => {
                 if (edgeMode && name !== null) {
                   // Edge-mode state machine — see src/utils/edgeMode.ts
@@ -699,6 +805,7 @@ export default function App() {
                 if (edge) { setSelectedNodeName(null); setSelectedNodeNames([]); }
                 setSelectedEdge(edge);
               }}
+              onTraceModeChange={setTraceMode}
               onNodeMove={(name, x, y) => { layout.setPosition(name, x, y); pywrJson.markDirty(); }}
               onDeleteRequest={setDeleteTarget}
               onDeleteMultiple={setBatchDeleteTargets}
@@ -717,6 +824,13 @@ export default function App() {
                 setPlacementMode(false);
               }}
             />
+            {pywrJson.model && (
+              <RecorderManager
+                model={pywrJson.model}
+                selectedNodeNames={selectedNodeNames}
+                onApply={(updatedModel) => pywrJson.replaceModel(updatedModel)}
+              />
+            )}
             {selectedNode && (
               <PropertiesPanel
                 node={selectedNode}

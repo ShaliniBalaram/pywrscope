@@ -1,0 +1,5 @@
+# Redirect Rust build artifacts to the main drive.
+# The external volume (/Volumes/Shalini B) creates macOS ._* metadata files
+# that corrupt Tauri's permission-file reader during the build step.
+[build]
+target-dir = "/tmp/pywr-canvas-target"

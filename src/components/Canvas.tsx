@@ -37,12 +37,26 @@ export interface SelectedEdge {
   to: string;
 }
 
+export type TraceMode = "both" | "upstream" | "downstream" | "active";
+
+export interface TraceSummary {
+  selectedName: string;
+  nodeType: string;
+  inboundCount: number;
+  outboundCount: number;
+  upstreamCount: number;
+  downstreamCount: number;
+  tracedEdgeCount: number;
+  activeEdgeCount: number;
+}
+
 const nodeTypes: NodeTypes = { pywr: PywrNodeComponent };
 const edgeTypes: EdgeTypes = { pywr: PywrEdge };
 
 // Shared empty fallback for the activeFlowEdges prop. Defined at module scope
 // so React.memo on rfEdges doesn't bust every render when the prop is omitted.
 const EMPTY_EDGE_SET: Set<string> = new Set();
+const EMPTY_NODE_ROLE_MAP: Map<string, "upstream" | "downstream" | "both"> = new Map();
 
 export interface CanvasHandle {
   zoomToNodes: (ids: string[]) => void;
@@ -64,8 +78,11 @@ interface CanvasProps {
   placementMode: boolean;
   edgeMode: boolean;
   edgeSource: string | null;
+  traceMode: TraceMode;
+  traceSummary: TraceSummary | null;
   onNodeSelect: (name: string | null, addToSelection?: boolean) => void;
   onEdgeSelect: (edge: SelectedEdge | null) => void;
+  onTraceModeChange: (mode: TraceMode) => void;
   onNodeMove: (name: string, x: number, y: number) => void;
   onDeleteRequest: (name: string) => void;
   onDeleteMultiple: (names: string[]) => void;
@@ -80,6 +97,11 @@ interface CanvasProps {
   // canvas paints these edges green and slightly thicker. Empty set = no
   // highlighting (no run yet, no selection, or no active downstream flow).
   activeFlowEdges?: Set<string>;
+  // Pure topology trace from the selected node. Unlike activeFlowEdges, this
+  // works without run results: all reachable upstream/downstream edges render
+  // with a presentation highlight so clients can follow the network.
+  tracedTopologyEdges?: Set<string>;
+  tracedNodeRoles?: Map<string, "upstream" | "downstream" | "both">;
 }
 
 // Convert PywrModel to React Flow nodes
@@ -88,6 +110,7 @@ function toRFNodes(
   positions: Record<string, { x: number; y: number }>,
   selectedNodeNames: string[],
   highlightedNodeName: string | null,
+  tracedNodeRoles: Map<string, "upstream" | "downstream" | "both">,
   editingNodeName: string | null,
   showLabels: boolean,
   onRenameComplete: (oldName: string, newName: string) => void
@@ -105,6 +128,7 @@ function toRFNodes(
         colour: NODE_COLOUR_MAP[canonicalType] ?? "#888",
         shape: NODE_SHAPE_MAP[canonicalType] ?? { shape: "rectangle", border: "solid" },
         highlighted: name === highlightedNodeName,
+        traceRole: tracedNodeRoles.get(name),
         isEditing: name === editingNodeName,
         showLabels,
         onRenameComplete: (newName: string) => onRenameComplete(name, newName),
@@ -122,6 +146,7 @@ function toRFEdges(
   model: PywrModel,
   selectedEdge: SelectedEdge | null,
   activeFlowEdges: Set<string>,
+  tracedTopologyEdges: Set<string>,
 ): RFEdge[] {
   return model.edges.map((edge, i) => {
     const [from, to] = edge;
@@ -131,7 +156,10 @@ function toRFEdges(
       source: from,
       target: to,
       type: "pywr",
-      data: { active: activeFlowEdges.has(key) },
+      data: {
+        active: activeFlowEdges.has(key),
+        traced: tracedTopologyEdges.has(key),
+      },
       selected:
         selectedEdge !== null &&
         selectedEdge.from === from &&
@@ -193,8 +221,11 @@ const CanvasInner = React.forwardRef<CanvasHandle, CanvasProps>(function CanvasI
   placementMode,
   edgeMode,
   edgeSource,
+  traceMode,
+  traceSummary,
   onNodeSelect,
   onEdgeSelect,
+  onTraceModeChange,
   onNodeMove,
   onDeleteRequest,
   onDeleteMultiple,
@@ -205,6 +236,8 @@ const CanvasInner = React.forwardRef<CanvasHandle, CanvasProps>(function CanvasI
   onConnect,
   onPlacementClick,
   activeFlowEdges,
+  tracedTopologyEdges,
+  tracedNodeRoles,
 }: CanvasProps, ref) {
   // Floating context menu — opens on right-click on a node or edge.
   // Replaces the previous "right-click immediately deletes" behaviour.
@@ -235,21 +268,23 @@ const CanvasInner = React.forwardRef<CanvasHandle, CanvasProps>(function CanvasI
 
   // Memoize node and edge arrays — prevents ReactFlow from re-reconciling
   // every time a parent state change triggers a re-render.
+  const tracedNodeRoleMap = tracedNodeRoles ?? EMPTY_NODE_ROLE_MAP;
   const rfNodes = useMemo(
     () =>
       model
-        ? toRFNodes(model, positions, selectedNodeNames, highlightedNodeName, editingNodeName, showLabels, onRenameComplete)
+        ? toRFNodes(model, positions, selectedNodeNames, highlightedNodeName, tracedNodeRoleMap, editingNodeName, showLabels, onRenameComplete)
         : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [model, positions, selectedNodeNames, highlightedNodeName, editingNodeName, showLabels]
+    [model, positions, selectedNodeNames, highlightedNodeName, tracedNodeRoleMap, editingNodeName, showLabels]
   );
 
   // Empty-set fallback keeps the dep array stable when no flow data exists
   // yet — without it every render would create a fresh Set and bust memo.
   const activeEdgesSet = activeFlowEdges ?? EMPTY_EDGE_SET;
+  const tracedEdgesSet = tracedTopologyEdges ?? EMPTY_EDGE_SET;
   const rfEdges = useMemo(
-    () => (model ? toRFEdges(model, selectedEdge, activeEdgesSet) : []),
-    [model, selectedEdge, activeEdgesSet]
+    () => (model ? toRFEdges(model, selectedEdge, activeEdgesSet, tracedEdgesSet) : []),
+    [model, selectedEdge, activeEdgesSet, tracedEdgesSet]
   );
 
   // Fit view once when the model first loads — not on every subsequent update.
@@ -466,6 +501,12 @@ const CanvasInner = React.forwardRef<CanvasHandle, CanvasProps>(function CanvasI
         />
       )}
 
+      <TraceControls
+        mode={traceMode}
+        summary={traceSummary}
+        onChange={onTraceModeChange}
+      />
+
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -518,6 +559,140 @@ const CanvasInner = React.forwardRef<CanvasHandle, CanvasProps>(function CanvasI
     </div>
   );
 });
+
+function TraceControls({
+  mode,
+  summary,
+  onChange,
+}: {
+  mode: TraceMode;
+  summary: TraceSummary | null;
+  onChange: (mode: TraceMode) => void;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 12,
+        right: 12,
+        zIndex: 20,
+        width: 280,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        pointerEvents: "auto",
+      }}
+    >
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 4,
+          padding: 4,
+          background: "rgba(15,23,42,0.9)",
+          border: "1px solid rgba(148,163,184,0.35)",
+          borderRadius: 6,
+          boxShadow: "0 8px 20px rgba(15,23,42,0.22)",
+        }}
+      >
+        {(["both", "upstream", "downstream", "active"] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => onChange(m)}
+            title={traceModeTitle(m)}
+            style={{
+              border: "none",
+              borderRadius: 4,
+              padding: "5px 4px",
+              fontSize: 10,
+              fontWeight: 700,
+              color: mode === m ? "#0f172a" : "#cbd5e1",
+              background: mode === m ? "#e2e8f0" : "transparent",
+              cursor: "pointer",
+            }}
+          >
+            {traceModeLabel(m)}
+          </button>
+        ))}
+      </div>
+
+      {summary && (
+        <div
+          style={{
+            background: "rgba(255,255,255,0.94)",
+            border: "1px solid #cbd5e1",
+            borderRadius: 6,
+            boxShadow: "0 8px 20px rgba(15,23,42,0.18)",
+            padding: 10,
+            color: "#0f172a",
+          }}
+        >
+          <div style={{ fontSize: 11, color: "#64748b", marginBottom: 2 }}>
+            {summary.nodeType}
+          </div>
+          <div
+            title={summary.selectedName}
+            style={{
+              fontSize: 13,
+              fontWeight: 800,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              marginBottom: 8,
+            }}
+          >
+            {summary.selectedName}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <SummaryMetric label="In" value={summary.inboundCount} />
+            <SummaryMetric label="Out" value={summary.outboundCount} />
+            <SummaryMetric label="Upstream" value={summary.upstreamCount} tone="#f59e0b" />
+            <SummaryMetric label="Downstream" value={summary.downstreamCount} tone="#0ea5e9" />
+            <SummaryMetric label="Trace edges" value={summary.tracedEdgeCount} tone="#8b5cf6" />
+            <SummaryMetric label="Active edges" value={summary.activeEdgeCount} tone="#10b981" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SummaryMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: string;
+}) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 10, color: "#64748b" }}>{label}</div>
+      <div style={{ fontSize: 16, fontWeight: 800, color: tone ?? "#0f172a" }}>
+        {value.toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
+function traceModeLabel(mode: TraceMode): string {
+  switch (mode) {
+    case "both": return "Both";
+    case "upstream": return "Up";
+    case "downstream": return "Down";
+    case "active": return "Active";
+  }
+}
+
+function traceModeTitle(mode: TraceMode): string {
+  switch (mode) {
+    case "both": return "Show upstream and downstream topology";
+    case "upstream": return "Show only nodes and edges feeding the selected node";
+    case "downstream": return "Show only nodes and edges reached from the selected node";
+    case "active": return "Show only result-backed active-flow edges after a run";
+  }
+}
 
 // Exported wrapper — provides ReactFlowProvider context and forwards ref
 export const Canvas = React.forwardRef<CanvasHandle, CanvasProps>((props, ref) => {

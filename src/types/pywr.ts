@@ -306,7 +306,7 @@ export type PywrNode =
 //   ["from", "to", from_slot, to_slot]          — with explicit slots
 //
 // Slots are positional and may be ints (slot indices) or strings (slot names),
-// per the Pywr schema. Earlier versions of Pywrscope stored edges as
+// per the Pywr schema. Earlier versions of PyWR Canvas stored edges as
 // {from_node, to_node} objects in memory, which broke round-tripping with
 // Pywr core (Pywr.model.Model.load expects arrays). The Rust parser still
 // accepts the object form on import for backwards compatibility, but the
@@ -453,6 +453,10 @@ export interface PywrModel {
   recorders: Record<string, PywrRecorder>;
   timestepper: PywrTimestepper;
   metadata?: PywrMetadata;
+  // Pywr models may carry additional top-level data that the canvas does not
+  // edit directly but must preserve exactly: tables, includes, scenarios,
+  // pywr_editor metadata, and project-specific extension keys.
+  [key: string]: unknown;
 }
 
 // ---------- Run-time event protocol ----------

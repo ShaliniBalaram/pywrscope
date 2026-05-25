@@ -24,6 +24,7 @@ set -euo pipefail
 PBS_RELEASE="20260504"
 PYTHON_VERSION="3.11.15"
 PYWR_VERSION="1.30.0"
+H5PY_VERSION="3.16.0"
 
 # Project-relative paths.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,28 +33,14 @@ DEST_DIR="${ROOT_DIR}/src-tauri/resources/python-runtime"
 BRIDGE_SCRIPT_SRC="${ROOT_DIR}/src-tauri/python/run_pywr.py"
 H5_SCRIPT_SRC="${ROOT_DIR}/src-tauri/python/read_h5.py"
 MARKER="${DEST_DIR}/.runtime-version"
-MARKER_VALUE="pbs=${PBS_RELEASE} python=${PYTHON_VERSION} pywr=${PYWR_VERSION}"
+MARKER_VALUE="pbs=${PBS_RELEASE} python=${PYTHON_VERSION} pywr=${PYWR_VERSION} h5py=${H5PY_VERSION}"
 
 # ---------------------------------------------------------------------------
-# Detect platform → python-build-standalone asset triple.
-#
-# PBS_TARGET_TRIPLE overrides host detection. This is the cross-build escape
-# hatch: GitHub's `macos-latest` runner is now Apple Silicon (arm64), but our
-# Intel-targeted .dmg job still runs on it via `cargo --target x86_64-apple-
-# darwin`. Without an override, host detection would embed an arm64 Python
-# runtime in the Intel-targeted bundle — broken at runtime on Intel Macs.
-# The build workflow passes the target via this env var; local builds get
-# host detection automatically.
-#
-# Windows is intentionally not handled here; the sibling .ps1 script is the
-# right home for that since bash on Windows + tar + signing all behave
-# differently.
+# Detect host platform → python-build-standalone asset triple.
+# Windows is intentionally not handled here; a sibling .ps1 script is the right
+# home for that since bash on Windows + tar + signing all behave differently.
 # ---------------------------------------------------------------------------
 detect_triple() {
-  if [[ -n "${PBS_TARGET_TRIPLE:-}" ]]; then
-    echo "${PBS_TARGET_TRIPLE}"
-    return
-  fi
   local kernel
   local arch
   kernel="$(uname -s)"
@@ -66,7 +53,6 @@ detect_triple() {
     *)
       echo "ERROR: unsupported platform: ${kernel}-${arch}" >&2
       echo "Supported: macOS arm64/x86_64, Linux x86_64/aarch64" >&2
-      echo "Set PBS_TARGET_TRIPLE to override for cross-build." >&2
       exit 1
       ;;
   esac
@@ -98,7 +84,7 @@ fi
 # ---------------------------------------------------------------------------
 echo "[setup-python-runtime] platform: ${TRIPLE}"
 echo "[setup-python-runtime] target:   ${DEST_DIR}"
-echo "[setup-python-runtime] versions: python=${PYTHON_VERSION} pywr=${PYWR_VERSION}"
+echo "[setup-python-runtime] versions: python=${PYTHON_VERSION} pywr=${PYWR_VERSION} h5py=${H5PY_VERSION}"
 
 rm -rf "${DEST_DIR}"
 mkdir -p "$(dirname "${DEST_DIR}")"
@@ -119,15 +105,15 @@ if [[ ! -x "${PY}" ]]; then
   exit 1
 fi
 
-echo "[setup-python-runtime] $(${PY} --version)"
+echo "[setup-python-runtime] $("${PY}" --version)"
 
-echo "[setup-python-runtime] installing pywr==${PYWR_VERSION}..."
+echo "[setup-python-runtime] installing pywr==${PYWR_VERSION} and h5py==${H5PY_VERSION}..."
 "${PY}" -m pip install --quiet --upgrade pip
-"${PY}" -m pip install --quiet "pywr==${PYWR_VERSION}"
+"${PY}" -m pip install --quiet "pywr==${PYWR_VERSION}" "h5py==${H5PY_VERSION}"
 
 # Verify the install actually loads — catches broken wheels early so build
 # failures don't surface at app-launch time.
-"${PY}" -c "from pywr.model import Model; import pywr; print(f'[setup-python-runtime] pywr {pywr.__version__} importable')"
+"${PY}" -c "from pywr.model import Model; import pywr, h5py; print(f'[setup-python-runtime] pywr {pywr.__version__}, h5py {h5py.__version__} importable')"
 
 # ---------------------------------------------------------------------------
 # Prune. Three layers, ordered by risk.
@@ -191,7 +177,7 @@ fi
 # Re-verify after pruning. Two-stage: (1) bare import for fail-fast feedback,
 # (2) actually run a tiny model so any lazy import we accidentally amputated
 # fails the build here, not at the user's first run.
-"${PY}" -c "from pywr.model import Model; print('[setup-python-runtime] post-prune import OK')"
+"${PY}" -c "from pywr.model import Model; import h5py; print('[setup-python-runtime] post-prune import OK')"
 
 echo "[setup-python-runtime] post-prune smoke test (5-step model)..."
 SMOKE_DIR="$(mktemp -d)"

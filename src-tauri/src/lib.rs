@@ -1,11 +1,11 @@
-// src-tauri/src/lib.rs — Pywrscope Tauri backend
+// src-tauri/src/lib.rs — PyWR Canvas Tauri backend
 // All model logic (parse, validate, export, add-recorders) runs here in Rust.
 // File dialogs use tauri-plugin-dialog. File I/O uses std::fs directly.
 
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
@@ -66,7 +66,7 @@ struct ValidationIssue {
 
 // Extract (from, to) endpoints from an edge regardless of representation.
 // Pywr's canonical edge form is the array ["from", "to", ...slot_args].
-// Pywrscope before v1.6.0 emitted objects {"from_node":"A","to_node":"B"}
+// PyWR Canvas before v1.6.0 emitted objects {"from_node":"A","to_node":"B"}
 // and validators / saved files in the wild may still use either shape — this
 // helper accepts both so validation, recorder-injection, and parsing all keep
 // working without forcing an external migration.
@@ -117,13 +117,22 @@ fn issue(code: &str, severity: &str, message: String, node_name: &str) -> Valida
 fn validate_single_node(node: &Value) -> Vec<ValidationIssue> {
     let mut out = vec![];
 
-    let name = node.get("name").and_then(|n| n.as_str()).unwrap_or("").trim().to_string();
+    let name = node
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
     let name_ref: &str;
     let owned_unnamed;
 
     if name.is_empty() {
-        out.push(issue("MISSING_REQUIRED_FIELD", "error",
-            "Node is missing a valid 'name' field".into(), ""));
+        out.push(issue(
+            "MISSING_REQUIRED_FIELD",
+            "error",
+            "Node is missing a valid 'name' field".into(),
+            "",
+        ));
         owned_unnamed = "<unnamed>".to_string();
         name_ref = &owned_unnamed;
     } else {
@@ -133,24 +142,38 @@ fn validate_single_node(node: &Value) -> Vec<ValidationIssue> {
     let node_type = match node.get("type").and_then(|t| t.as_str()) {
         Some(t) if !t.trim().is_empty() => t.to_string(),
         _ => {
-            out.push(issue("MISSING_REQUIRED_FIELD", "error",
-                format!("Node '{}' is missing a valid 'type' field", name_ref), name_ref));
+            out.push(issue(
+                "MISSING_REQUIRED_FIELD",
+                "error",
+                format!("Node '{}' is missing a valid 'type' field", name_ref),
+                name_ref,
+            ));
             return out;
         }
     };
 
     let tk = type_key(&node_type);
     if !VALID_NODE_TYPES.contains(&tk.as_str()) {
-        out.push(issue("INVALID_NODE_TYPE", "error",
-            format!("Node '{}' has unknown type '{}'", name_ref, node_type), name_ref));
+        out.push(issue(
+            "INVALID_NODE_TYPE",
+            "error",
+            format!("Node '{}' has unknown type '{}'", name_ref, node_type),
+            name_ref,
+        ));
         return out;
     }
 
     for field in required_fields(&node_type) {
         if node.get(field).is_none() {
-            out.push(issue("MISSING_REQUIRED_FIELD", "error",
-                format!("Node '{}' (type '{}') is missing required field '{}'", name_ref, node_type, field),
-                name_ref));
+            out.push(issue(
+                "MISSING_REQUIRED_FIELD",
+                "error",
+                format!(
+                    "Node '{}' (type '{}') is missing required field '{}'",
+                    name_ref, node_type, field
+                ),
+                name_ref,
+            ));
         }
     }
 
@@ -163,8 +186,12 @@ fn validate_model_inner(model: &Value) -> Vec<ValidationIssue> {
     let obj = match model.as_object() {
         Some(o) => o,
         None => {
-            out.push(issue("MODEL_STRUCTURE_ERROR", "error",
-                "Model must be a JSON object".into(), ""));
+            out.push(issue(
+                "MODEL_STRUCTURE_ERROR",
+                "error",
+                "Model must be a JSON object".into(),
+                "",
+            ));
             return out;
         }
     };
@@ -173,53 +200,81 @@ fn validate_model_inner(model: &Value) -> Vec<ValidationIssue> {
     let empty_arr = vec![];
     let nodes: &Vec<Value> = match obj.get("nodes") {
         None => {
-            out.push(issue("MODEL_STRUCTURE_ERROR", "error",
-                "Model is missing 'nodes' array".into(), ""));
+            out.push(issue(
+                "MODEL_STRUCTURE_ERROR",
+                "error",
+                "Model is missing 'nodes' array".into(),
+                "",
+            ));
             return out;
         }
         Some(n) => match n.as_array() {
             Some(a) => a,
             None => {
-                out.push(issue("MODEL_STRUCTURE_ERROR", "error",
-                    "'nodes' must be an array".into(), ""));
+                out.push(issue(
+                    "MODEL_STRUCTURE_ERROR",
+                    "error",
+                    "'nodes' must be an array".into(),
+                    "",
+                ));
                 return out;
             }
-        }
+        },
     };
 
     // edges
     let edges: &Vec<Value> = match obj.get("edges") {
         None => {
-            out.push(issue("MODEL_STRUCTURE_ERROR", "warning",
-                "Model has no 'edges' array".into(), ""));
+            out.push(issue(
+                "MODEL_STRUCTURE_ERROR",
+                "warning",
+                "Model has no 'edges' array".into(),
+                "",
+            ));
             &empty_arr
         }
         Some(e) => match e.as_array() {
             Some(a) => a,
             None => {
-                out.push(issue("MODEL_STRUCTURE_ERROR", "error",
-                    "'edges' must be an array".into(), ""));
+                out.push(issue(
+                    "MODEL_STRUCTURE_ERROR",
+                    "error",
+                    "'edges' must be an array".into(),
+                    "",
+                ));
                 &empty_arr
             }
-        }
+        },
     };
 
     // timestepper
     match obj.get("timestepper") {
-        None => out.push(issue("MODEL_STRUCTURE_ERROR", "error",
-            "Model is missing 'timestepper'".into(), "")),
+        None => out.push(issue(
+            "MODEL_STRUCTURE_ERROR",
+            "error",
+            "Model is missing 'timestepper'".into(),
+            "",
+        )),
         Some(ts) => match ts.as_object() {
-            None => out.push(issue("MODEL_STRUCTURE_ERROR", "error",
-                "'timestepper' must be an object".into(), "")),
+            None => out.push(issue(
+                "MODEL_STRUCTURE_ERROR",
+                "error",
+                "'timestepper' must be an object".into(),
+                "",
+            )),
             Some(ts_obj) => {
                 for f in &["start", "end", "timestep"] {
                     if !ts_obj.contains_key(*f) {
-                        out.push(issue("MISSING_REQUIRED_FIELD", "error",
-                            format!("'timestepper' is missing required field '{}'", f), ""));
+                        out.push(issue(
+                            "MISSING_REQUIRED_FIELD",
+                            "error",
+                            format!("'timestepper' is missing required field '{}'", f),
+                            "",
+                        ));
                     }
                 }
             }
-        }
+        },
     }
 
     // validate each node; collect names
@@ -228,10 +283,18 @@ fn validate_model_inner(model: &Value) -> Vec<ValidationIssue> {
 
     for node in nodes {
         out.extend(validate_single_node(node));
-        if let Some(name) = node.get("name").and_then(|n| n.as_str()).filter(|s| !s.is_empty()) {
+        if let Some(name) = node
+            .get("name")
+            .and_then(|n| n.as_str())
+            .filter(|s| !s.is_empty())
+        {
             if node_names.contains(name) {
-                out.push(issue("DUPLICATE_NODE_NAME", "error",
-                    format!("Duplicate node name '{}'", name), name));
+                out.push(issue(
+                    "DUPLICATE_NODE_NAME",
+                    "error",
+                    format!("Duplicate node name '{}'", name),
+                    name,
+                ));
             }
             node_names.insert(name.to_string());
             if let Some(t) = node.get("type").and_then(|t| t.as_str()) {
@@ -243,27 +306,45 @@ fn validate_model_inner(model: &Value) -> Vec<ValidationIssue> {
     // validate edges (accepts both array and object shapes via edge_from_to)
     for (i, edge) in edges.iter().enumerate() {
         match edge_from_to(edge) {
-            None => out.push(issue("ORPHANED_EDGE", "error",
-                format!("Edge {} is malformed (expected [\"from\",\"to\"] or {{from_node,to_node}})", i), "")),
+            None => out.push(issue(
+                "ORPHANED_EDGE",
+                "error",
+                format!(
+                    "Edge {} is malformed (expected [\"from\",\"to\"] or {{from_node,to_node}})",
+                    i
+                ),
+                "",
+            )),
             Some((from, to)) => {
                 if from.is_empty() || !node_names.contains(from) {
-                    out.push(issue("ORPHANED_EDGE", "error",
-                        format!("Edge {} references unknown from node '{}'", i, from), from));
+                    out.push(issue(
+                        "ORPHANED_EDGE",
+                        "error",
+                        format!("Edge {} references unknown from node '{}'", i, from),
+                        from,
+                    ));
                 }
                 if to.is_empty() || !node_names.contains(to) {
-                    out.push(issue("ORPHANED_EDGE", "error",
-                        format!("Edge {} references unknown to node '{}'", i, to), to));
+                    out.push(issue(
+                        "ORPHANED_EDGE",
+                        "error",
+                        format!("Edge {} references unknown to node '{}'", i, to),
+                        to,
+                    ));
                 }
             }
         }
     }
 
     // connected nodes set
-    let connected: HashSet<String> = edges.iter().flat_map(|e| {
-        edge_from_to(e)
-            .map(|(f, t)| vec![f.to_string(), t.to_string()])
-            .unwrap_or_default()
-    }).collect();
+    let connected: HashSet<String> = edges
+        .iter()
+        .flat_map(|e| {
+            edge_from_to(e)
+                .map(|(f, t)| vec![f.to_string(), t.to_string()])
+                .unwrap_or_default()
+        })
+        .collect();
 
     // recorders index
     let mut recorder_nodes: HashSet<String> = HashSet::new();
@@ -276,8 +357,11 @@ fn validate_model_inner(model: &Value) -> Vec<ValidationIssue> {
             vec![]
         };
         for rec in values {
-            if let Some(r) = rec.get("node").or_else(|| rec.get("param"))
-                .and_then(|v| v.as_str()) {
+            if let Some(r) = rec
+                .get("node")
+                .or_else(|| rec.get("param"))
+                .and_then(|v| v.as_str())
+            {
                 recorder_nodes.insert(r.to_string());
             }
         }
@@ -285,7 +369,11 @@ fn validate_model_inner(model: &Value) -> Vec<ValidationIssue> {
 
     // per-node warnings
     for node in nodes {
-        let name = match node.get("name").and_then(|n| n.as_str()).filter(|s| !s.is_empty()) {
+        let name = match node
+            .get("name")
+            .and_then(|n| n.as_str())
+            .filter(|s| !s.is_empty())
+        {
             Some(n) => n,
             None => continue,
         };
@@ -293,26 +381,37 @@ fn validate_model_inner(model: &Value) -> Vec<ValidationIssue> {
         let is_virtual = VIRTUAL_TYPES.contains(&tk.as_str());
 
         if !is_virtual && !connected.contains(name) {
-            out.push(issue("UNCONNECTED_NODE", "warning",
-                format!("Node '{}' is not connected to any edge", name), name));
+            out.push(issue(
+                "UNCONNECTED_NODE",
+                "warning",
+                format!("Node '{}' is not connected to any edge", name),
+                name,
+            ));
         }
         // NO_RECORDER intentionally omitted — it fires for every node during
         // normal editing and is too noisy to be actionable.
     }
 
     // UNREACHABLE_DEMAND: BFS upstream from each Output
-    let mut reverse_adj: HashMap<String, Vec<String>> = node_names.iter()
-        .map(|n| (n.clone(), vec![])).collect();
+    let mut reverse_adj: HashMap<String, Vec<String>> =
+        node_names.iter().map(|n| (n.clone(), vec![])).collect();
     for edge in edges {
         if let Some((from, to)) = edge_from_to(edge) {
             if node_names.contains(from) && node_names.contains(to) {
-                reverse_adj.entry(to.to_string()).or_default().push(from.to_string());
+                reverse_adj
+                    .entry(to.to_string())
+                    .or_default()
+                    .push(from.to_string());
             }
         }
     }
 
     for node in nodes {
-        let name = match node.get("name").and_then(|n| n.as_str()).filter(|s| !s.is_empty()) {
+        let name = match node
+            .get("name")
+            .and_then(|n| n.as_str())
+            .filter(|s| !s.is_empty())
+        {
             Some(n) => n,
             None => continue,
         };
@@ -323,7 +422,9 @@ fn validate_model_inner(model: &Value) -> Vec<ValidationIssue> {
         let mut queue = vec![name.to_string()];
         let mut found = false;
         while let Some(current) = queue.pop() {
-            if visited.contains(&current) { continue; }
+            if visited.contains(&current) {
+                continue;
+            }
             visited.insert(current.clone());
             let tk = type_key(node_types.get(&current).map(|s| s.as_str()).unwrap_or(""));
             if SOURCE_TYPES.contains(&tk.as_str()) && current != name {
@@ -335,9 +436,15 @@ fn validate_model_inner(model: &Value) -> Vec<ValidationIssue> {
             }
         }
         if !found {
-            out.push(issue("UNREACHABLE_DEMAND", "warning",
-                format!("Output node '{}' has no upstream path to any Input or Catchment", name),
-                name));
+            out.push(issue(
+                "UNREACHABLE_DEMAND",
+                "warning",
+                format!(
+                    "Output node '{}' has no upstream path to any Input or Catchment",
+                    name
+                ),
+                name,
+            ));
         }
     }
 
@@ -350,8 +457,14 @@ fn validate_model_inner(model: &Value) -> Vec<ValidationIssue> {
 
 const STORAGE_TYPES_REC: &[&str] = &["storage", "annualvirtualstorage"];
 const FLOW_RECORDER_TYPES: &[&str] = &[
-    "input", "output", "link", "river", "rivergauge", "catchment",
-    "piecewiselink", "riversplithwithgauge",
+    "input",
+    "output",
+    "link",
+    "river",
+    "rivergauge",
+    "catchment",
+    "piecewiselink",
+    "riversplithwithgauge",
 ];
 const SKIP_TYPES_REC: &[&str] = &["aggregatednode", "aggregatedstorage", "virtualstorage"];
 
@@ -366,52 +479,76 @@ fn add_recorders_inner(model: Value) -> (Value, Vec<Value>) {
     let mut model = model;
     let mut added: Vec<Value> = vec![];
 
-    let nodes: Vec<Value> = model.get("nodes")
-        .and_then(|n| n.as_array()).cloned().unwrap_or_default();
+    let nodes: Vec<Value> = model
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
 
-    let mut recs: serde_json::Map<String, Value> = model.get("recorders")
-        .and_then(|r| r.as_object()).cloned().unwrap_or_default();
+    let mut recs: serde_json::Map<String, Value> = model
+        .get("recorders")
+        .and_then(|r| r.as_object())
+        .cloned()
+        .unwrap_or_default();
 
     for node in &nodes {
-        let name = match node.get("name").and_then(|n| n.as_str()).filter(|s| !s.is_empty()) {
+        let name = match node
+            .get("name")
+            .and_then(|n| n.as_str())
+            .filter(|s| !s.is_empty())
+        {
             Some(n) => n.to_string(),
             None => continue,
         };
-        let node_type = match node.get("type").and_then(|t| t.as_str()).filter(|s| !s.is_empty()) {
+        let node_type = match node
+            .get("type")
+            .and_then(|t| t.as_str())
+            .filter(|s| !s.is_empty())
+        {
             Some(t) => t.to_string(),
             None => continue,
         };
         let tk = type_key(&node_type);
 
-        if SKIP_TYPES_REC.contains(&tk.as_str()) { continue; }
+        if SKIP_TYPES_REC.contains(&tk.as_str()) {
+            continue;
+        }
 
         if STORAGE_TYPES_REC.contains(&tk.as_str()) {
             const S_REC: &str = "NumpyArrayStorageRecorder";
             if !recorder_exists(S_REC, &name, &recs) {
-                recs.insert(format!("{}_recorder", name),
-                    json!({"type": S_REC, "node": name}));
+                recs.insert(
+                    format!("{}_recorder", name),
+                    json!({"type": S_REC, "node": name}),
+                );
                 added.push(json!({"recorder_type": S_REC, "node": name}));
             }
             if tk == "annualvirtualstorage" {
                 const N_REC: &str = "NumpyArrayNormalisedStorageRecorder";
                 if !recorder_exists(N_REC, &name, &recs) {
-                    recs.insert(format!("{}_normalised_recorder", name),
-                        json!({"type": N_REC, "node": name}));
+                    recs.insert(
+                        format!("{}_normalised_recorder", name),
+                        json!({"type": N_REC, "node": name}),
+                    );
                     added.push(json!({"recorder_type": N_REC, "node": name}));
                 }
             }
         } else if FLOW_RECORDER_TYPES.contains(&tk.as_str()) {
             const F_REC: &str = "NumpyArrayNodeRecorder";
             if !recorder_exists(F_REC, &name, &recs) {
-                recs.insert(format!("{}_recorder", name),
-                    json!({"type": F_REC, "node": name}));
+                recs.insert(
+                    format!("{}_recorder", name),
+                    json!({"type": F_REC, "node": name}),
+                );
                 added.push(json!({"recorder_type": F_REC, "node": name}));
             }
             if tk == "output" && name.ends_with("_DC") {
                 const D_REC: &str = "NumpyArrayNodeDeficitRecorder";
                 if !recorder_exists(D_REC, &name, &recs) {
-                    recs.insert(format!("{}_deficit_recorder", name),
-                        json!({"type": D_REC, "node": name}));
+                    recs.insert(
+                        format!("{}_deficit_recorder", name),
+                        json!({"type": D_REC, "node": name}),
+                    );
                     added.push(json!({"recorder_type": D_REC, "node": name}));
                 }
             }
@@ -473,7 +610,9 @@ async fn open_file_dialog(app: tauri::AppHandle) -> Option<String> {
     app.dialog()
         .file()
         .add_filter("Pywr JSON", &["json"])
-        .pick_file(move |fp| { let _ = tx.send(fp); });
+        .pick_file(move |fp| {
+            let _ = tx.send(fp);
+        });
     rx.await.ok().flatten().and_then(fp_to_string)
 }
 
@@ -483,7 +622,9 @@ async fn open_image_dialog(app: tauri::AppHandle) -> Option<String> {
     app.dialog()
         .file()
         .add_filter("Images", &["png", "jpg", "jpeg"])
-        .pick_file(move |fp| { let _ = tx.send(fp); });
+        .pick_file(move |fp| {
+            let _ = tx.send(fp);
+        });
     rx.await.ok().flatten().and_then(fp_to_string)
 }
 
@@ -494,7 +635,9 @@ async fn save_file_dialog(app: tauri::AppHandle, default_path: String) -> Option
         .file()
         .set_file_name(&default_path)
         .add_filter("Pywr JSON", &["json"])
-        .save_file(move |fp| { let _ = tx.send(fp); });
+        .save_file(move |fp| {
+            let _ = tx.send(fp);
+        });
     rx.await.ok().flatten().and_then(fp_to_string)
 }
 
@@ -504,7 +647,9 @@ async fn open_csv_dialog(app: tauri::AppHandle) -> Option<String> {
     app.dialog()
         .file()
         .add_filter("CSV Files", &["csv"])
-        .pick_file(move |fp| { let _ = tx.send(fp); });
+        .pick_file(move |fp| {
+            let _ = tx.send(fp);
+        });
     rx.await.ok().flatten().and_then(fp_to_string)
 }
 
@@ -519,7 +664,9 @@ async fn open_results_dialog(app: tauri::AppHandle) -> Option<String> {
         .add_filter("Pywr Results", &["csv", "h5", "hdf5"])
         .add_filter("CSV", &["csv"])
         .add_filter("HDF5", &["h5", "hdf5"])
-        .pick_file(move |fp| { let _ = tx.send(fp); });
+        .pick_file(move |fp| {
+            let _ = tx.send(fp);
+        });
     rx.await.ok().flatten().and_then(fp_to_string)
 }
 
@@ -530,7 +677,11 @@ fn read_csv_columns(path: String) -> Vec<String> {
     }
     std::fs::read_to_string(&path)
         .map(|content| {
-            content.lines().next().unwrap_or("").split(',')
+            content
+                .lines()
+                .next()
+                .unwrap_or("")
+                .split(',')
                 .map(|col| col.trim().trim_matches('"').to_string())
                 .filter(|s| !s.is_empty())
                 .collect()
@@ -569,31 +720,49 @@ fn split_csv_line(line: &str) -> Vec<String> {
 fn read_csv_preview(path: String, max_rows: usize) -> CsvPreview {
     if let Err(e) = validate_user_path(&path) {
         return CsvPreview {
-            ok: false, headers: vec![], rows: vec![], total_rows: 0, returned_rows: 0,
+            ok: false,
+            headers: vec![],
+            rows: vec![],
+            total_rows: 0,
+            returned_rows: 0,
             error: Some(e),
         };
     }
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
-        Err(e) => return CsvPreview {
-            ok: false, headers: vec![], rows: vec![], total_rows: 0, returned_rows: 0,
-            error: Some(format!("Could not read file: {}", e)),
-        },
+        Err(e) => {
+            return CsvPreview {
+                ok: false,
+                headers: vec![],
+                rows: vec![],
+                total_rows: 0,
+                returned_rows: 0,
+                error: Some(format!("Could not read file: {}", e)),
+            }
+        }
     };
     let mut lines = content.lines();
     let header_line = match lines.next() {
         Some(l) => l,
-        None => return CsvPreview {
-            ok: false, headers: vec![], rows: vec![], total_rows: 0, returned_rows: 0,
-            error: Some("File is empty".into()),
-        },
+        None => {
+            return CsvPreview {
+                ok: false,
+                headers: vec![],
+                rows: vec![],
+                total_rows: 0,
+                returned_rows: 0,
+                error: Some("File is empty".into()),
+            }
+        }
     };
     let headers = split_csv_line(header_line);
 
     let mut rows: Vec<Vec<String>> = Vec::with_capacity(max_rows.min(1024));
     let mut total = 0usize;
     for line in lines {
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         total += 1;
         if rows.len() < max_rows {
             rows.push(split_csv_line(line));
@@ -651,35 +820,58 @@ async fn run_h5_helper(app: &tauri::AppHandle, args: Vec<String>) -> Result<Valu
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if stdout.is_empty() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(format!("HDF5 helper produced no output. stderr: {}", stderr));
+        return Err(format!(
+            "HDF5 helper produced no output. stderr: {}",
+            stderr
+        ));
     }
     // Helper may emit several lines (e.g. log lines from imports). Take the
     // last non-empty line as the result envelope — that's where emit_ok /
     // emit_err writes its single JSON object.
-    let last = stdout.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+    let last = stdout
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("");
     serde_json::from_str::<Value>(last)
         .map_err(|e| format!("Unparseable helper output: {} — raw: {}", e, last))
 }
 
 #[tauri::command]
 async fn read_h5_list(app: tauri::AppHandle, path: String) -> Value {
-    match run_h5_helper(&app, vec![
-        "--mode".into(), "list".into(),
-        "--path".into(), path,
-    ]).await {
+    match run_h5_helper(
+        &app,
+        vec!["--mode".into(), "list".into(), "--path".into(), path],
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => json!({"ok": false, "error": e}),
     }
 }
 
 #[tauri::command]
-async fn read_h5_preview(app: tauri::AppHandle, path: String, dataset: String, max_rows: usize) -> Value {
-    match run_h5_helper(&app, vec![
-        "--mode".into(), "preview".into(),
-        "--path".into(), path,
-        "--dataset".into(), dataset,
-        "--max-rows".into(), max_rows.to_string(),
-    ]).await {
+async fn read_h5_preview(
+    app: tauri::AppHandle,
+    path: String,
+    dataset: String,
+    max_rows: usize,
+) -> Value {
+    match run_h5_helper(
+        &app,
+        vec![
+            "--mode".into(),
+            "preview".into(),
+            "--path".into(),
+            path,
+            "--dataset".into(),
+            dataset,
+            "--max-rows".into(),
+            max_rows.to_string(),
+        ],
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => json!({"ok": false, "error": e}),
     }
@@ -709,40 +901,86 @@ fn parse_model(json_path: String) -> Value {
 
     // Normalise edges to Pywr's canonical array form ["from", "to", ...slots].
     // Accept the legacy object form {"from_node","to_node"[, "from_slot", "to_slot"]}
-    // for backwards compatibility with files saved by Pywrscope before v1.6.0.
-    let raw_edges = model.get("edges").and_then(|e| e.as_array()).cloned().unwrap_or_default();
-    let normalised_edges: Vec<Value> = raw_edges.into_iter().map(|edge| {
-        // Already an array — keep as-is (preserves any slot args at indices 2+).
-        if edge.is_array() {
-            return edge;
-        }
-        // Object form → convert to array. Slots become positional.
-        if let Some(obj) = edge.as_object() {
-            if let (Some(from), Some(to)) = (
-                obj.get("from_node").and_then(|v| v.as_str()),
-                obj.get("to_node").and_then(|v| v.as_str()),
-            ) {
-                let from_slot = obj.get("from_slot").cloned();
-                let to_slot = obj.get("to_slot").cloned();
-                return match (from_slot, to_slot) {
-                    (Some(fs), Some(ts)) => json!([from, to, fs, ts]),
-                    _ => json!([from, to]),
-                };
+    // for backwards compatibility with files saved by PyWR Canvas before v1.6.0.
+    let raw_edges = model
+        .get("edges")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let normalised_edges: Vec<Value> = raw_edges
+        .into_iter()
+        .map(|edge| {
+            // Already an array — keep as-is (preserves any slot args at indices 2+).
+            if edge.is_array() {
+                return edge;
             }
-        }
-        edge
-    }).collect();
+            // Object form → convert to array. Slots become positional.
+            if let Some(obj) = edge.as_object() {
+                if let (Some(from), Some(to)) = (
+                    obj.get("from_node").and_then(|v| v.as_str()),
+                    obj.get("to_node").and_then(|v| v.as_str()),
+                ) {
+                    let from_slot = obj.get("from_slot").cloned();
+                    let to_slot = obj.get("to_slot").cloned();
+                    return match (from_slot, to_slot) {
+                        (Some(fs), Some(ts)) => json!([from, to, fs, ts]),
+                        _ => json!([from, to]),
+                    };
+                }
+            }
+            edge
+        })
+        .collect();
+
+    // Preserve the full Pywr model, including top-level keys the canvas does
+    // not edit directly (`tables`, `includes`, `scenarios`, custom extension
+    // fields, etc.). Earlier versions returned a whitelist of known fields,
+    // which made saved models fail in Pywr when parameters referenced tables.
+    let mut data = model.as_object().cloned().unwrap_or_default();
+    data.insert(
+        "nodes".into(),
+        model
+            .get("nodes")
+            .filter(|v| v.is_array())
+            .cloned()
+            .unwrap_or(json!([])),
+    );
+    data.insert("edges".into(), Value::Array(normalised_edges));
+    data.insert(
+        "parameters".into(),
+        model
+            .get("parameters")
+            .filter(|v| v.is_object())
+            .cloned()
+            .unwrap_or(empty_obj.clone()),
+    );
+    data.insert(
+        "recorders".into(),
+        model
+            .get("recorders")
+            .filter(|v| v.is_object())
+            .cloned()
+            .unwrap_or(empty_obj.clone()),
+    );
+    data.insert(
+        "timestepper".into(),
+        model
+            .get("timestepper")
+            .cloned()
+            .unwrap_or(empty_obj.clone()),
+    );
+    data.insert(
+        "metadata".into(),
+        model
+            .get("metadata")
+            .filter(|v| v.is_object())
+            .cloned()
+            .unwrap_or(empty_obj),
+    );
 
     json!({
         "ok": true,
-        "data": {
-            "nodes":       model.get("nodes").filter(|v| v.is_array()).cloned().unwrap_or(json!([])),
-            "edges":       Value::Array(normalised_edges),
-            "parameters":  model.get("parameters").filter(|v| v.is_object()).cloned().unwrap_or(empty_obj.clone()),
-            "recorders":   model.get("recorders").filter(|v| v.is_object()).cloned().unwrap_or(empty_obj.clone()),
-            "timestepper": model.get("timestepper").cloned().unwrap_or(empty_obj.clone()),
-            "metadata":    model.get("metadata").filter(|v| v.is_object()).cloned().unwrap_or(empty_obj),
-        }
+        "data": Value::Object(data)
     })
 }
 
@@ -752,7 +990,8 @@ fn validate_model_cmd(model: Value) -> Value {
         return json!({"ok": false, "error": "model must be a JSON object"});
     }
     let issues = validate_model_inner(&model);
-    let warnings: Vec<&ValidationIssue> = issues.iter().filter(|i| i.severity == "warning").collect();
+    let warnings: Vec<&ValidationIssue> =
+        issues.iter().filter(|i| i.severity == "warning").collect();
     let errors: Vec<&ValidationIssue> = issues.iter().filter(|i| i.severity == "error").collect();
     json!({"ok": true, "data": {"warnings": warnings, "errors": errors}})
 }
@@ -801,8 +1040,10 @@ fn read_layout_file(path: String) -> Option<String> {
 }
 
 // ============================================================================
-// PYWR MODEL RUNNER — spawns the bundled python interpreter against
-// run_pywr.py and streams JSON-line events back to the frontend as Tauri events.
+// PYWR MODEL RUNNER — spawns Python against run_pywr.py and streams JSON-line
+// events back to the frontend as Tauri events. By default this uses the bundled
+// runtime, but PYWR_CANVAS_PYTHON can point at a project-specific interpreter
+// for reproducing notebook environments.
 //
 // Protocol contract is documented in src-tauri/python/run_pywr.py — this module
 // is a transport layer and must not parse or interpret event payloads beyond
@@ -818,8 +1059,14 @@ struct RunHandle {
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "ok", rename_all = "snake_case")]
 enum CheckPythonResult {
-    Ok { python_version: String, pywr_version: String },
-    Err { code: String, message: String },
+    Ok {
+        python_version: String,
+        pywr_version: String,
+    },
+    Err {
+        code: String,
+        message: String,
+    },
 }
 
 // State singleton that owns running pywr child processes. Keyed by run_id so
@@ -845,7 +1092,9 @@ fn next_run_id() -> String {
 // `resources/` path prefix from tauri.conf.json's bundle.resources entry
 // because that's where files live relative to the conf file.
 fn python_runtime_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let base = app.path().resource_dir()
+    let base = app
+        .path()
+        .resource_dir()
         .map_err(|e| format!("resource_dir failed: {}", e))?;
     // Try bundled location first (release build); fall back to source-tree
     // location for `tauri dev` where resources are read from the workspace.
@@ -853,7 +1102,10 @@ fn python_runtime_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         base.join("resources").join("python-runtime"),
         base.join("python-runtime"),
         // Dev fallback — when running from src-tauri/target/debug, walk up.
-        base.join("..").join("..").join("resources").join("python-runtime"),
+        base.join("..")
+            .join("..")
+            .join("resources")
+            .join("python-runtime"),
     ];
     for c in &candidates {
         if c.is_dir() {
@@ -863,11 +1115,25 @@ fn python_runtime_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Err(format!(
         "Bundled python-runtime not found. Run `npm run setup:python` to install it. \
          Searched: {:?}",
-        candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>()
+        candidates
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
     ))
 }
 
-fn python_binary(runtime_dir: &PathBuf) -> PathBuf {
+fn python_binary(runtime_dir: &Path) -> PathBuf {
+    python_binary_with_override(runtime_dir, std::env::var("PYWR_CANVAS_PYTHON").ok())
+}
+
+fn python_binary_with_override(runtime_dir: &Path, override_path: Option<String>) -> PathBuf {
+    if let Some(path) = override_path {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
     // python-build-standalone layout differs by OS. On Windows the interpreter
     // is at <root>/python.exe; on macOS/Linux at <root>/bin/python3.
     if cfg!(windows) {
@@ -877,7 +1143,7 @@ fn python_binary(runtime_dir: &PathBuf) -> PathBuf {
     }
 }
 
-fn bridge_script(runtime_dir: &PathBuf) -> PathBuf {
+fn bridge_script(runtime_dir: &Path) -> PathBuf {
     runtime_dir.join("run_pywr.py")
 }
 
@@ -888,10 +1154,7 @@ fn bridge_script(runtime_dir: &PathBuf) -> PathBuf {
 //
 // Extracted as a free function (instead of an inline closure) so unit tests
 // can drive it with a Vec collector — no Tauri app handle required.
-async fn forward_event_lines<R, F>(
-    reader: R,
-    mut emit: F,
-)
+async fn forward_event_lines<R, F>(reader: R, mut emit: F)
 where
     R: tokio::io::AsyncBufRead + Unpin,
     F: FnMut(Value),
@@ -934,15 +1197,19 @@ async fn run_model(
 
     let mut child = tokio::process::Command::new(&py)
         .arg(&script)
-        .arg("--model").arg(&json_path)
-        .arg("--out").arg(&out_dir)
+        .arg("--model")
+        .arg(&json_path)
+        .arg("--out")
+        .arg(&out_dir)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("Failed to spawn python: {}", e))?;
 
-    let stdout = child.stdout.take()
+    let stdout = child
+        .stdout
+        .take()
         .ok_or_else(|| "Failed to capture python stdout".to_string())?;
     let stderr = child.stderr.take();
 
@@ -958,7 +1225,8 @@ async fn run_model(
         let reader = tokio::io::BufReader::new(stdout);
         forward_event_lines(reader, |payload| {
             let _ = app_clone.emit(&event_name_clone, payload);
-        }).await;
+        })
+        .await;
 
         // After stdout closes, reap the child and synthesize a final error
         // event if it exited non-zero without one already on the stream —
@@ -975,12 +1243,15 @@ async fn run_model(
                     } else {
                         String::new()
                     };
-                    let _ = app_clone.emit(&event_name_clone, json!({
-                        "type": "error",
-                        "code": "RUN_FAILED",
-                        "message": format!("Python exited with status {}", status),
-                        "traceback": stderr_str,
-                    }));
+                    let _ = app_clone.emit(
+                        &event_name_clone,
+                        json!({
+                            "type": "error",
+                            "code": "RUN_FAILED",
+                            "message": format!("Python exited with status {}", status),
+                            "traceback": stderr_str,
+                        }),
+                    );
                 }
                 _ => {}
             }
@@ -991,10 +1262,7 @@ async fn run_model(
 }
 
 #[tauri::command]
-async fn cancel_run(
-    state: tauri::State<'_, RunState>,
-    run_id: String,
-) -> Result<(), String> {
+async fn cancel_run(state: tauri::State<'_, RunState>, run_id: String) -> Result<(), String> {
     // The reader task observes stdout EOF after the kill, drains stderr, and
     // removes the entry from the map. We deliberately don't remove here to
     // avoid a race where the reader still holds a borrow.
@@ -1009,10 +1277,12 @@ async fn cancel_run(
 async fn check_python(app: tauri::AppHandle) -> CheckPythonResult {
     let runtime_dir = match python_runtime_dir(&app) {
         Ok(d) => d,
-        Err(e) => return CheckPythonResult::Err {
-            code: "RUNTIME_NOT_FOUND".into(),
-            message: e,
-        },
+        Err(e) => {
+            return CheckPythonResult::Err {
+                code: "RUNTIME_NOT_FOUND".into(),
+                message: e,
+            }
+        }
     };
     let py = python_binary(&runtime_dir);
     if !py.is_file() {
@@ -1030,28 +1300,32 @@ async fn check_python(app: tauri::AppHandle) -> CheckPythonResult {
         print(json.dumps({'ok': True, 'python_version': sys.version.split()[0], 'pywr_version': v}))";
 
     let output = match tokio::process::Command::new(&py)
-        .arg("-c").arg(script)
+        .arg("-c")
+        .arg(script)
         .output()
         .await
     {
         Ok(o) => o,
-        Err(e) => return CheckPythonResult::Err {
-            code: "PYTHON_SPAWN_FAILED".into(),
-            message: e.to_string(),
-        },
+        Err(e) => {
+            return CheckPythonResult::Err {
+                code: "PYTHON_SPAWN_FAILED".into(),
+                message: e.to_string(),
+            }
+        }
     };
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     match serde_json::from_str::<Value>(&stdout) {
-        Ok(v) if v.get("ok").and_then(|b| b.as_bool()) == Some(true) => {
-            CheckPythonResult::Ok {
-                python_version: v["python_version"].as_str().unwrap_or("").to_string(),
-                pywr_version: v["pywr_version"].as_str().unwrap_or("").to_string(),
-            }
-        }
+        Ok(v) if v.get("ok").and_then(|b| b.as_bool()) == Some(true) => CheckPythonResult::Ok {
+            python_version: v["python_version"].as_str().unwrap_or("").to_string(),
+            pywr_version: v["pywr_version"].as_str().unwrap_or("").to_string(),
+        },
         Ok(v) => CheckPythonResult::Err {
             code: "PYWR_IMPORT_FAILED".into(),
-            message: v["msg"].as_str().unwrap_or("pywr import failed").to_string(),
+            message: v["msg"]
+                .as_str()
+                .unwrap_or("pywr import failed")
+                .to_string(),
         },
         Err(_) => CheckPythonResult::Err {
             code: "PYTHON_SPAWN_FAILED".into(),
@@ -1261,7 +1535,10 @@ mod tests {
             "edges": [],
             "timestepper": {"start": "2020-01-01", "end": "2020-12-31", "timestep": 1}
         });
-        let errors: Vec<_> = issues_for(&m).into_iter().filter(|i| i.severity == "error").collect();
+        let errors: Vec<_> = issues_for(&m)
+            .into_iter()
+            .filter(|i| i.severity == "error")
+            .collect();
         assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
     }
 
@@ -1302,26 +1579,48 @@ mod tests {
     #[test]
     fn valid_all_known_node_types() {
         let known_types = [
-            "input", "output", "link", "catchment", "storage", "reservoir",
-            "river", "rivergauge", "riversplit", "losslink", "breaklink",
+            "input",
+            "output",
+            "link",
+            "catchment",
+            "storage",
+            "reservoir",
+            "river",
+            "rivergauge",
+            "riversplit",
+            "losslink",
+            "breaklink",
             "aggregatednode",
         ];
         for t in &known_types {
-            let extra = if *t == "storage" { json!({"max_volume": 1000}) }
-                else if *t == "aggregatednode" { json!({"nodes": []}) }
-                else { json!({}) };
+            let extra = if *t == "storage" {
+                json!({"max_volume": 1000})
+            } else if *t == "aggregatednode" {
+                json!({"nodes": []})
+            } else {
+                json!({})
+            };
             let mut node = json!({"name": "N", "type": t});
             if let (Some(n_obj), Some(e_obj)) = (node.as_object_mut(), extra.as_object()) {
-                for (k, v) in e_obj { n_obj.insert(k.clone(), v.clone()); }
+                for (k, v) in e_obj {
+                    n_obj.insert(k.clone(), v.clone());
+                }
             }
             let m = json!({
                 "nodes": [node],
                 "edges": [],
                 "timestepper": {"start": "2020-01-01", "end": "2020-12-31", "timestep": 1}
             });
-            let errs: Vec<_> = issues_for(&m).into_iter()
-                .filter(|i| i.severity == "error").collect();
-            assert!(errs.is_empty(), "type '{}' should not produce errors but got: {:?}", t, errs);
+            let errs: Vec<_> = issues_for(&m)
+                .into_iter()
+                .filter(|i| i.severity == "error")
+                .collect();
+            assert!(
+                errs.is_empty(),
+                "type '{}' should not produce errors but got: {:?}",
+                t,
+                errs
+            );
         }
     }
 
@@ -1368,33 +1667,46 @@ mod tests {
     #[test]
     fn virtual_nodes_exempt_from_unconnected_warning() {
         let virtual_types = [
-            "VirtualStorage", "AnnualVirtualStorage",
-            "SeasonalVirtualStorage", "MonthlyVirtualStorage",
-            "RollingVirtualStorage", "AggregatedNode", "AggregatedStorage",
+            "VirtualStorage",
+            "AnnualVirtualStorage",
+            "SeasonalVirtualStorage",
+            "MonthlyVirtualStorage",
+            "RollingVirtualStorage",
+            "AggregatedNode",
+            "AggregatedStorage",
         ];
         for vt in &virtual_types {
-            let extra = if *vt == "AggregatedNode" || *vt == "AnnualVirtualStorage"
-                || *vt == "VirtualStorage" || *vt == "SeasonalVirtualStorage"
-                || *vt == "MonthlyVirtualStorage" || *vt == "RollingVirtualStorage" {
-                    json!({"nodes": []})
-                } else if *vt == "AggregatedStorage" {
-                    json!({"storages": []})
-                } else if *vt == "AnnualVirtualStorage" {
-                    json!({"nodes": [], "max_volume": 0})
-                } else {
-                    json!({})
-                };
+            let extra = if *vt == "AggregatedNode"
+                || *vt == "AnnualVirtualStorage"
+                || *vt == "VirtualStorage"
+                || *vt == "SeasonalVirtualStorage"
+                || *vt == "MonthlyVirtualStorage"
+                || *vt == "RollingVirtualStorage"
+            {
+                json!({"nodes": []})
+            } else if *vt == "AggregatedStorage" {
+                json!({"storages": []})
+            } else if *vt == "AnnualVirtualStorage" {
+                json!({"nodes": [], "max_volume": 0})
+            } else {
+                json!({})
+            };
             let mut node = json!({"name": "V", "type": vt});
             if let (Some(n_obj), Some(e_obj)) = (node.as_object_mut(), extra.as_object()) {
-                for (k, v) in e_obj { n_obj.insert(k.clone(), v.clone()); }
+                for (k, v) in e_obj {
+                    n_obj.insert(k.clone(), v.clone());
+                }
             }
             let m = json!({
                 "nodes": [node],
                 "edges": [],
                 "timestepper": {"start": "2020-01-01", "end": "2020-12-31", "timestep": 1}
             });
-            assert!(!has_code(&issues_for(&m), "UNCONNECTED_NODE"),
-                "virtual type '{}' should not trigger UNCONNECTED_NODE", vt);
+            assert!(
+                !has_code(&issues_for(&m), "UNCONNECTED_NODE"),
+                "virtual type '{}' should not trigger UNCONNECTED_NODE",
+                vt
+            );
         }
     }
 
@@ -1413,8 +1725,10 @@ mod tests {
             "edges": [{"from_node": "A", "to_node": "B"}],
             "timestepper": {"start": "2020-01-01", "end": "2020-12-31", "timestep": 1}
         });
-        assert!(!has_code(&issues_for(&m), "NO_RECORDER"),
-            "NO_RECORDER should never be emitted");
+        assert!(
+            !has_code(&issues_for(&m), "NO_RECORDER"),
+            "NO_RECORDER should never be emitted"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1506,9 +1820,9 @@ mod tests {
         let (updated, added) = add_recorders_inner(m);
         assert!(!added.is_empty(), "should have added a recorder");
         let recs = updated["recorders"].as_object().unwrap();
-        let has_flow = recs.values().any(|v| {
-            v["type"] == "NumpyArrayNodeRecorder" && v["node"] == "Src"
-        });
+        let has_flow = recs
+            .values()
+            .any(|v| v["type"] == "NumpyArrayNodeRecorder" && v["node"] == "Src");
         assert!(has_flow, "should have a NumpyArrayNodeRecorder for Src");
     }
 
@@ -1522,10 +1836,13 @@ mod tests {
         });
         let (updated, _) = add_recorders_inner(m);
         let recs = updated["recorders"].as_object().unwrap();
-        let has_storage = recs.values().any(|v| {
-            v["type"] == "NumpyArrayStorageRecorder" && v["node"] == "Res"
-        });
-        assert!(has_storage, "should have a NumpyArrayStorageRecorder for Res");
+        let has_storage = recs
+            .values()
+            .any(|v| v["type"] == "NumpyArrayStorageRecorder" && v["node"] == "Res");
+        assert!(
+            has_storage,
+            "should have a NumpyArrayStorageRecorder for Res"
+        );
     }
 
     #[test]
@@ -1572,7 +1889,7 @@ mod tests {
 
     #[test]
     fn validate_handles_array_edge_format() {
-        // Pywr's canonical edge shape is ["from", "to"]. As of v1.6.0 Pywrscope
+        // Pywr's canonical edge shape is ["from", "to"]. As of v1.6.0 PyWR Canvas
         // stores edges this way in memory and emits them this way on save.
         // The validator must accept arrays directly (no normalisation step needed).
         let m = json!({
@@ -1583,14 +1900,19 @@ mod tests {
             "edges": [["A", "B"]],
             "timestepper": {"start": "2020-01-01", "end": "2020-12-31", "timestep": 1}
         });
-        let errors: Vec<_> = issues_for(&m).into_iter()
-            .filter(|i| i.severity == "error").collect();
-        assert!(errors.is_empty(), "clean array-edge model should have no errors");
+        let errors: Vec<_> = issues_for(&m)
+            .into_iter()
+            .filter(|i| i.severity == "error")
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "clean array-edge model should have no errors"
+        );
     }
 
     #[test]
     fn validate_still_accepts_legacy_object_edge_format() {
-        // Files saved by Pywrscope <= v1.5.x used object form. Validator must
+        // Files saved by PyWR Canvas <= v1.5.x used object form. Validator must
         // still accept them so users can open old files without migration.
         let m = json!({
             "nodes": [
@@ -1600,9 +1922,14 @@ mod tests {
             "edges": [{"from_node": "A", "to_node": "B"}],
             "timestepper": {"start": "2020-01-01", "end": "2020-12-31", "timestep": 1}
         });
-        let errors: Vec<_> = issues_for(&m).into_iter()
-            .filter(|i| i.severity == "error").collect();
-        assert!(errors.is_empty(), "legacy object-edge model should still parse");
+        let errors: Vec<_> = issues_for(&m)
+            .into_iter()
+            .filter(|i| i.severity == "error")
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "legacy object-edge model should still parse"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1677,7 +2004,7 @@ mod tests {
     #[test]
     fn python_binary_uses_bin_python3_on_unix() {
         if cfg!(unix) {
-            let p = python_binary(&PathBuf::from("/runtime"));
+            let p = python_binary_with_override(&PathBuf::from("/runtime"), None);
             assert_eq!(p, PathBuf::from("/runtime/bin/python3"));
         }
     }
@@ -1685,9 +2012,18 @@ mod tests {
     #[test]
     fn python_binary_uses_python_exe_on_windows() {
         if cfg!(windows) {
-            let p = python_binary(&PathBuf::from("C:\\runtime"));
+            let p = python_binary_with_override(&PathBuf::from("C:\\runtime"), None);
             assert_eq!(p, PathBuf::from("C:\\runtime\\python.exe"));
         }
+    }
+
+    #[test]
+    fn python_binary_uses_external_override_when_set() {
+        let p = python_binary_with_override(
+            &PathBuf::from("/runtime"),
+            Some("/project/.venv/bin/python".to_string()),
+        );
+        assert_eq!(p, PathBuf::from("/project/.venv/bin/python"));
     }
 
     #[test]
@@ -1755,7 +2091,11 @@ mod tests {
 
     #[test]
     fn parse_model_rejects_parent_dir_traversal() {
-        let bad = if cfg!(unix) { "/tmp/../etc/passwd" } else { "C:\\..\\Windows" };
+        let bad = if cfg!(unix) {
+            "/tmp/../etc/passwd"
+        } else {
+            "C:\\..\\Windows"
+        };
         let v = parse_model(bad.into());
         assert_eq!(v["ok"], json!(false));
     }
@@ -1768,32 +2108,52 @@ mod tests {
 
     #[test]
     fn export_model_rejects_parent_dir_traversal() {
-        let bad = if cfg!(unix) { "/tmp/../etc/passwd" } else { "C:\\..\\boot.ini" };
+        let bad = if cfg!(unix) {
+            "/tmp/../etc/passwd"
+        } else {
+            "C:\\..\\boot.ini"
+        };
         let v = export_model(json!({"nodes": []}), bad.into());
         assert_eq!(v["ok"], json!(false));
     }
 
     #[test]
     fn save_layout_file_rejects_traversal() {
-        let bad = if cfg!(unix) { "/tmp/../etc/evil" } else { "C:\\..\\evil" };
+        let bad = if cfg!(unix) {
+            "/tmp/../etc/evil"
+        } else {
+            "C:\\..\\evil"
+        };
         assert!(save_layout_file(bad.into(), "x".into()).is_err());
     }
 
     #[test]
     fn read_layout_file_returns_none_on_traversal() {
-        let bad = if cfg!(unix) { "/tmp/../etc/passwd" } else { "C:\\..\\evil" };
+        let bad = if cfg!(unix) {
+            "/tmp/../etc/passwd"
+        } else {
+            "C:\\..\\evil"
+        };
         assert!(read_layout_file(bad.into()).is_none());
     }
 
     #[test]
     fn read_csv_columns_returns_empty_on_traversal() {
-        let bad = if cfg!(unix) { "/tmp/../etc/passwd" } else { "C:\\..\\evil" };
+        let bad = if cfg!(unix) {
+            "/tmp/../etc/passwd"
+        } else {
+            "C:\\..\\evil"
+        };
         assert!(read_csv_columns(bad.into()).is_empty());
     }
 
     #[test]
     fn read_csv_preview_returns_error_envelope_on_traversal() {
-        let bad = if cfg!(unix) { "/tmp/../etc/passwd" } else { "C:\\..\\evil" };
+        let bad = if cfg!(unix) {
+            "/tmp/../etc/passwd"
+        } else {
+            "C:\\..\\evil"
+        };
         let p = read_csv_preview(bad.into(), 10);
         assert!(!p.ok);
         assert!(p.error.is_some());
@@ -1831,40 +2191,42 @@ mod tests {
         // First parse — produces the canonical data envelope the UI consumes.
         let first = parse_model(src.to_string_lossy().to_string());
         assert_eq!(
-            first["ok"], json!(true),
-            "first parse_model({}) failed: {:?}", example, first.get("error")
+            first["ok"],
+            json!(true),
+            "first parse_model({}) failed: {:?}",
+            example,
+            first.get("error")
         );
 
-        // Export the parsed data to a tempfile. We rebuild a Pywr-shaped
-        // top-level object from the parser's data envelope (which splits the
-        // file into nodes/edges/parameters/recorders/timestepper/metadata).
-        let data = &first["data"];
-        let mut model = serde_json::Map::new();
-        for key in &["nodes", "edges", "parameters", "recorders", "timestepper", "metadata"] {
-            if let Some(v) = data.get(*key) {
-                model.insert((*key).into(), v.clone());
-            }
-        }
-        let model_value = Value::Object(model);
+        // Export the parsed data to a tempfile. parse_model returns a full
+        // Pywr-shaped object in `data`, preserving top-level keys such as
+        // tables/includes/scenarios in addition to the fields the canvas edits.
+        let model_value = first["data"].clone();
 
         // Write to a unique tempfile so parallel test runs don't collide.
         let tmp = std::env::temp_dir().join(format!(
-            "pywrscope_round_trip_{}_{}_{}.json",
+            "pywr_canvas_round_trip_{}_{}_{}.json",
             example.replace('/', "_"),
             std::process::id(),
             next_run_id(),
         ));
         let export = export_model(model_value, tmp.to_string_lossy().to_string());
         assert_eq!(
-            export["ok"], json!(true),
-            "export_model failed for {}: {:?}", example, export.get("error")
+            export["ok"],
+            json!(true),
+            "export_model failed for {}: {:?}",
+            example,
+            export.get("error")
         );
 
         // Re-parse the exported file.
         let second = parse_model(tmp.to_string_lossy().to_string());
         assert_eq!(
-            second["ok"], json!(true),
-            "second parse_model failed for {}: {:?}", example, second.get("error")
+            second["ok"],
+            json!(true),
+            "second parse_model failed for {}: {:?}",
+            example,
+            second.get("error")
         );
 
         // Semantic equality across the round trip. parse_model is the
@@ -1873,14 +2235,23 @@ mod tests {
         // already-normalised form — equality must hold either way.
         assert_eq!(
             first["data"], second["data"],
-            "round-trip drift in {}: first vs second parse differ", example
+            "round-trip drift in {}: first vs second parse differ",
+            example
         );
 
         // Lock in the edge-shape invariant the v1.6.0 fix established:
         // edges MUST be arrays on disk and after parse, never objects.
-        let edges = second["data"]["edges"].as_array().expect("edges is an array");
+        let edges = second["data"]["edges"]
+            .as_array()
+            .expect("edges is an array");
         for (i, e) in edges.iter().enumerate() {
-            assert!(e.is_array(), "round-tripped edge {} in {} is not an array: {:?}", i, example, e);
+            assert!(
+                e.is_array(),
+                "round-tripped edge {} in {} is not an array: {:?}",
+                i,
+                example,
+                e
+            );
         }
 
         let _ = std::fs::remove_file(&tmp);
@@ -1927,19 +2298,96 @@ mod tests {
             edges_after_parse[0]
         );
 
-        let mut roundtrip_model = serde_json::Map::new();
-        for key in &["nodes", "edges", "parameters", "recorders", "timestepper", "metadata"] {
-            if let Some(v) = first["data"].get(*key) {
-                roundtrip_model.insert((*key).into(), v.clone());
-            }
-        }
         let tmp_out = std::env::temp_dir().join(format!("legacy_edges_out_{}.json", next_run_id()));
-        let export = export_model(Value::Object(roundtrip_model), tmp_out.to_string_lossy().to_string());
+        let export = export_model(first["data"].clone(), tmp_out.to_string_lossy().to_string());
         assert_eq!(export["ok"], json!(true));
 
         let second = parse_model(tmp_out.to_string_lossy().to_string());
         assert_eq!(second["ok"], json!(true));
-        assert_eq!(first["data"], second["data"], "second parse must be a no-op");
+        assert_eq!(
+            first["data"], second["data"],
+            "second parse must be a no-op"
+        );
+
+        let _ = std::fs::remove_file(&tmp_in);
+        let _ = std::fs::remove_file(&tmp_out);
+    }
+
+    #[test]
+    fn parse_export_preserves_top_level_tables_used_by_parameters() {
+        // Regression for the app-run failure: farnham_wrz5_model.json loads in
+        // notebooks, but a canvas open/save cycle dropped `tables`, so Pywr
+        // later raised KeyError for table-backed parameters such as
+        // "GW PDO profile".
+        let model = json!({
+            "metadata": {"title": "table-backed parameter fixture"},
+            "timestepper": {"start": "2020-01-01", "end": "2020-01-03", "timestep": 1},
+            "nodes": [
+                {"name": "A", "type": "Input", "max_flow": "p"},
+                {"name": "B", "type": "Output"}
+            ],
+            "edges": [["A", "B"]],
+            "tables": {
+                "GW PDO profile": {
+                    "url": "Data_RZ5.xlsx",
+                    "index_col": "Date"
+                }
+            },
+            "parameters": {
+                "p": {
+                    "type": "DataFrameParameter",
+                    "table": "GW PDO profile",
+                    "column": "A"
+                }
+            },
+            "recorders": {},
+            "includes": [],
+            "scenarios": [],
+            "pywr_editor": {"schematic_size": [1000, 800]}
+        });
+
+        let tmp_in =
+            std::env::temp_dir().join(format!("preserve_tables_in_{}.json", next_run_id()));
+        std::fs::write(&tmp_in, serde_json::to_string(&model).unwrap()).unwrap();
+
+        let first = parse_model(tmp_in.to_string_lossy().to_string());
+        assert_eq!(
+            first["ok"],
+            json!(true),
+            "parse failed: {:?}",
+            first.get("error")
+        );
+        assert_eq!(
+            first["data"]["tables"]["GW PDO profile"]["index_col"],
+            json!("Date")
+        );
+        assert_eq!(first["data"]["includes"], json!([]));
+        assert_eq!(first["data"]["scenarios"], json!([]));
+        assert_eq!(
+            first["data"]["pywr_editor"]["schematic_size"],
+            json!([1000, 800])
+        );
+
+        let tmp_out =
+            std::env::temp_dir().join(format!("preserve_tables_out_{}.json", next_run_id()));
+        let export = export_model(first["data"].clone(), tmp_out.to_string_lossy().to_string());
+        assert_eq!(
+            export["ok"],
+            json!(true),
+            "export failed: {:?}",
+            export.get("error")
+        );
+
+        let second = parse_model(tmp_out.to_string_lossy().to_string());
+        assert_eq!(
+            second["ok"],
+            json!(true),
+            "reparse failed: {:?}",
+            second.get("error")
+        );
+        assert_eq!(second["data"]["tables"], first["data"]["tables"]);
+        assert_eq!(second["data"]["parameters"], first["data"]["parameters"]);
+        assert_eq!(second["data"]["pywr_editor"], first["data"]["pywr_editor"]);
 
         let _ = std::fs::remove_file(&tmp_in);
         let _ = std::fs::remove_file(&tmp_out);

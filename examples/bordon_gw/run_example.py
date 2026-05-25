@@ -1,5 +1,5 @@
 # examples/bordon_gw/run_example.py
-# Demonstrates calling the Pywrscope Flask API against the Bordon GW example model.
+# Demonstrates calling the PyWR Canvas Flask API against the Bordon GW example model.
 # Prerequisites: python python/server.py must be running in a separate terminal.
 
 import json

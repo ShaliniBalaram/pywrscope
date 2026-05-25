@@ -1,4 +1,4 @@
-name: Build Pywrscope
+name: Build PyWR Canvas
 
 on:
   push:
@@ -15,28 +15,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS — Apple Silicon (.dmg). Native on macos-latest (arm64).
+          # macOS — Apple Silicon (.dmg)
           - platform: macos-latest
-            args: ""
+            args: "--target aarch64-apple-darwin"
             label: macOS Apple Silicon
-            target_triple: ""
-          # macOS — Intel (.dmg). Native build on macos-13 (the last GitHub-
-          # provided Intel runner). Cross-building from arm64 needs an Intel
-          # GLPK to link Pywr's Cython solver — easier to just run on Intel.
-          - platform: macos-13
-            args: ""
+          # macOS — Intel (.dmg)
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
             label: macOS Intel
-            target_triple: ""
           # Windows (.exe installer)
           - platform: windows-latest
             args: ""
             label: Windows
-            target_triple: ""
           # Linux — Debian/Ubuntu (.deb + .AppImage)
           - platform: ubuntu-22.04
             args: ""
             label: Linux
-            target_triple: ""
 
     runs-on: ${{ matrix.platform }}
 
@@ -51,12 +45,10 @@ jobs:
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      # Tauri v2 on Ubuntu 22.04 requires these system libraries.
-      # libfuse2 is for AppImage tooling — linuxdeploy is itself an AppImage
-      # and silently fails to execute on 22.04+ without fuse2 (22.04 ships
-      # fuse3 by default). Without it, .AppImage bundling errors with
-      # "failed to run linuxdeploy".
+      # Tauri v2 on Ubuntu 22.04 requires these system libraries
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -65,44 +57,10 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf \
-            libfuse2
-
-      # Pywr's Cython solver links against GLPK at compile time. pywr ships
-      # manylinux + Windows wheels but no macOS wheels (as of 1.30.0), so pip
-      # falls back to a from-source build on Mac and needs glpk.h on the
-      # include path. brew installs both the headers and the library.
-      - name: Install macOS system dependencies (GLPK for pywr)
-        if: startsWith(matrix.platform, 'macos')
-        run: brew install glpk
+            patchelf
 
       - name: Install npm dependencies
         run: npm install
-
-      # Cache the embedded Python runtime per-OS+arch. The setup scripts are
-      # the SSOT for pinned versions — hashing them invalidates the cache when
-      # we bump.
-      - name: Cache embedded Python runtime
-        id: cache-pyrt
-        uses: actions/cache@v4
-        with:
-          path: src-tauri/resources/python-runtime
-          key: pyrt-${{ runner.os }}-${{ matrix.args }}-${{ hashFiles('scripts/setup-python-runtime.sh', 'scripts/setup-python-runtime.ps1') }}
-
-      # tauri-action invokes `tauri build` directly — it does NOT chain through
-      # the package.json `build` script, so the setup never runs in CI even
-      # though it does locally. We invoke it explicitly so the bundle.resources
-      # glob is populated before tauri-action starts. The Node wrapper at
-      # scripts/setup-python.js dispatches to the .sh or .ps1 sibling based on
-      # process.platform — one workflow step, three OSes.
-      - name: Set up Python runtime
-        if: steps.cache-pyrt.outputs.cache-hit != 'true'
-        env:
-          # Override host detection for cross-builds — the Intel-targeted Mac
-          # job runs on an arm64 runner, so without this it would embed the
-          # wrong-arch Python. Empty string falls back to host detection.
-          PBS_TARGET_TRIPLE: ${{ matrix.target_triple }}
-        run: npm run setup:python
 
       - name: Build and publish Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -110,7 +68,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Pywrscope ${{ github.ref_name }}"
+          releaseName: "PyWR Canvas ${{ github.ref_name }}"
           releaseBody: |
             ## Installation
 
@@ -118,18 +76,18 @@ jobs:
 
             | Platform | File |
             |----------|------|
-            | **Mac — Apple Silicon (M1/M2/M3)** | `Pywrscope_*_aarch64.dmg` |
-            | **Mac — Intel** | `Pywrscope_*_x64.dmg` |
-            | **Windows** | `Pywrscope_*_x64-setup.exe` |
-            | **Linux (Ubuntu/Debian)** | `pywrscope_*_amd64.deb` |
-            | **Linux (other)** | `pywrscope_*_amd64.AppImage` |
+            | **Mac — Apple Silicon (M1/M2/M3)** | `PyWR Canvas_*_aarch64.dmg` |
+            | **Mac — Intel** | `PyWR Canvas_*_x64.dmg` |
+            | **Windows** | `PyWR Canvas_*_x64-setup.exe` |
+            | **Linux (Ubuntu/Debian)** | `pywr-canvas_*_amd64.deb` |
+            | **Linux (other)** | `pywr-canvas_*_amd64.AppImage` |
 
             No Python, Node.js or any other runtime required — fully standalone.
 
             ### Mac first-time setup
             macOS blocks unsigned apps on first launch. Run once in Terminal:
             ```
-            xattr -cr /Applications/Pywrscope.app
+            xattr -cr /Applications/PyWR\ Canvas.app
             ```
 
             ### Windows first-time setup

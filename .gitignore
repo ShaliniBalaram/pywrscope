@@ -3,10 +3,14 @@
 .DS_Store
 __MACOSX/
 
+# local IDE / editor session files
+.claude/
+
 node_modules/
 dist/
 release/
 build/
+coverage/
 *.dmg
 *.AppImage
 *.deb

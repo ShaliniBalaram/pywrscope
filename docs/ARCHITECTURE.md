@@ -1,8 +1,8 @@
-# ARCHITECTURE.md — Pywrscope
+# ARCHITECTURE.md — PyWR Canvas
 
 ## Overview
 
-Pywrscope is a Tauri v2 desktop app. All model logic (parse, validate, export,
+PyWR Canvas is a Tauri v2 desktop app. All model logic (parse, validate, export,
 add-recorders) runs in Rust inside the Tauri backend process. There is no Python backend,
 no HTTP server, and no external ports.
 

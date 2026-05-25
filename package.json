@@ -1,7 +1,7 @@
 {
-  "name": "pywrscope",
-  "version": "1.0.0",
-  "description": "Pywrscope — open-source visual diagnostic platform for Pywr water-resources network models",
+  "name": "pywr-canvas",
+  "version": "1.7.0",
+  "description": "Desktop application for opening, drawing, editing and validating Pywr water resource model JSON files",
   "scripts": {
     "dev": "npm run setup:python && tauri dev",
     "dev:vite": "vite --port 3000",
@@ -13,7 +13,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "bash tests/integration_run_pywr.sh",
-    "setup:python": "node scripts/setup-python.js"
+    "setup:python": "bash scripts/setup-python-runtime.sh"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",

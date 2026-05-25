@@ -4,15 +4,18 @@
 //   - Arrow placed at 80% along the line (close to target) for clear flow direction
 //   - Invisible wide hit area so right-click to delete still works easily
 //
-// Flow highlighting: when the parent passes data.active=true, the edge renders
-// green and slightly thicker. This is driven by the Results tab's "active
-// downstream from selected node" computation — see useRunResults.ts.
+// Highlighting:
+//   - data.traced=true renders the topology around the selected node.
+//   - data.active=true renders measured active flow after a successful run.
+// Active flow wins visually over topology trace so result-backed signal is
+// always the strongest colour on the canvas.
 
 import React from "react";
 import { EdgeProps, getStraightPath } from "reactflow";
 
 const STROKE = "#475569";
 const STROKE_ACTIVE = "#10b981";  // emerald — matches the Active dot in the Results tab
+const STROKE_TRACED = "#f59e0b";  // amber — topology trace before results exist
 const ARROW_SIZE = 9;   // smaller arrow to match compact node sizes
 const ARROW_POS = 0.8;  // 80% from source → target (was 0.5 midpoint)
 
@@ -20,6 +23,9 @@ interface PywrEdgeData {
   // When true, the edge lies on a path from the selected node to a downstream
   // Output sink with non-zero recorded flow. Set by App.tsx via toRFEdges.
   active?: boolean;
+  // When true, the edge is topologically reachable upstream/downstream of the
+  // selected node. Works even before the model has been run.
+  traced?: boolean;
 }
 
 export function PywrEdge({
@@ -29,7 +35,8 @@ export function PywrEdge({
   const [path] = getStraightPath({ sourceX, sourceY, targetX, targetY });
 
   const isActive = data?.active === true;
-  const stroke = selected ? "#3b82f6" : isActive ? STROKE_ACTIVE : STROKE;
+  const isTraced = data?.traced === true;
+  const stroke = selected ? "#3b82f6" : isActive ? STROKE_ACTIVE : isTraced ? STROKE_TRACED : STROKE;
 
   // Arrow anchor point at ARROW_POS along the edge
   const ax = sourceX + ARROW_POS * (targetX - sourceX);
@@ -57,7 +64,7 @@ export function PywrEdge({
       <path
         d={path}
         stroke={stroke}
-        strokeWidth={selected ? 2.5 : isActive ? 2.5 : 1.8}
+        strokeWidth={selected ? 2.8 : isActive ? 2.8 : isTraced ? 2.4 : 1.8}
         fill="none"
         style={style}
       />

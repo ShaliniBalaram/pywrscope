@@ -1,6 +1,6 @@
 # DECISIONS.md — Architectural Decisions
 
-Records significant design decisions made for Pywrscope and the reasoning behind them.
+Records significant design decisions made for PyWR Canvas and the reasoning behind them.
 
 ---
 
@@ -138,7 +138,7 @@ renamed or restructured in Rust, only `tauri_bridge.ts` needs to change.
 `["from", "to"]` or `["from", "to", from_slot, to_slot]`. Both the in-memory
 shape and the exported JSON use this format. The legacy object form
 `{from_node, to_node}` is still accepted on import for backwards compatibility
-with files saved by Pywrscope <= v1.5.x.
+with files saved by PyWR Canvas <= v1.5.x.
 
 **Reason:** Pywr core (`pywr.model.Model.load`) expects array-form edges. Until
 v1.6.0 the canvas stored edges as objects internally and emitted that shape on

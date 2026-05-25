@@ -1,4 +1,4 @@
-# DEV_SETUP.md — Pywrscope development setup
+# DEV_SETUP.md — PyWR Canvas development setup
 
 ## Prerequisites
 
@@ -20,8 +20,8 @@ No Python required.
 ## One-time setup
 
 ```bash
-git clone https://github.com/ShaliniBalaram/pywrscope.git
-cd pywrscope
+git clone https://github.com/ShaliniBalaram/pywr-canvas.git
+cd pywr-canvas
 npm install
 ```
 
@@ -45,8 +45,8 @@ npm run build
 ```
 
 This runs `tauri build`. Output is in `src-tauri/target/release/bundle/`:
-- Mac: `macos/Pywrscope.app` and `dmg/Pywrscope-<version>.dmg`
-- Windows: `nsis/Pywrscope Setup <version>.exe`
+- Mac: `macos/PyWR Canvas.app` and `dmg/PyWR Canvas-<version>.dmg`
+- Windows: `nsis/PyWR Canvas Setup <version>.exe`
 
 Users double-click the installer — no Node.js, no Rust, no terminal needed.
 
